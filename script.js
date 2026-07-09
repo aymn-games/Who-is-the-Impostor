@@ -32,6 +32,8 @@
    يتم استيراد Firebase هنا كوحدة (ES module) مباشرة من gstatic، لذلك
    لا حاجة لأي وسم <script> إضافي في index.html غير
    <script type="module" src="script.js"></script>
+   ولا حاجة لأي وسم <script> آخر أو كود Firebase مكرر داخل index.html —
+   هذا الملف هو المصدر الوحيد لتهيئة Firebase في كامل المشروع.
 --------------------------------------------------------------------- */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
 import {
@@ -348,6 +350,40 @@ function initialsOf(name){
 }
 
 /* ---------------------------------------------------------------------
+   4.ب) زر ونافذة "قوانين اللعبة" — طبقة عرض بحتة، لا تلمس حالة اللعبة
+   ولا توقفها؛ يمكن فتحها/إغلاقها في أي وقت من أي شاشة.
+--------------------------------------------------------------------- */
+(function setupRulesModal(){
+  const openBtn = $("#btn-rules");
+  const modal = $("#rules-modal");
+  const closeBtn = $("#rules-close");
+  if(!openBtn || !modal || !closeBtn) return;
+
+  const open = () => modal.classList.remove("hidden");
+  const close = () => modal.classList.add("hidden");
+
+  openBtn.addEventListener("click", open);
+  closeBtn.addEventListener("click", close);
+  modal.addEventListener("click", (e) => { if(e.target === modal) close(); });
+  document.addEventListener("keydown", (e) => {
+    if(e.key === "Escape" && !modal.classList.contains("hidden")) close();
+  });
+})();
+
+/* ---------------------------------------------------------------------
+   4.ج) تعبئة رمز الغرفة تلقائيًا عند فتح رابط QR (?room=CODE): يفتح
+   تبويب "الانضمام" مباشرة ويملأ الحقل، دون أي تأثير على منطق اللعبة.
+--------------------------------------------------------------------- */
+(function prefillJoinFromURL(){
+  const roomParam = new URLSearchParams(location.search).get("room");
+  if(!roomParam) return;
+  $all(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === "join"));
+  $all(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-join"));
+  const joinCodeInput = $("#join-code");
+  if(joinCodeInput) joinCodeInput.value = roomParam.replace(/\D/g, "");
+})();
+
+/* ---------------------------------------------------------------------
    5) شاشة البداية: التبويبات + إنشاء/انضمام
 --------------------------------------------------------------------- */
 $all(".tab-btn").forEach(btn => {
@@ -473,6 +509,8 @@ function attachRoomListener(){
 function resetToHome(){
   sessionStorage.clear();
   if(state.unsubscribe) state.unsubscribe();
+  stopTurnTimer();
+  hidePersistentHint();
   Object.assign(state, {
     roomCode:null, playerId:null, playerName:null, isHost:false,
     unsubscribe:null, roomData:null
@@ -491,25 +529,35 @@ function renderRoom(room){
 
   switch(room.status){
     case "lobby":
+      stopTurnTimer();
+      hidePersistentHint();
       renderLobby(room);
       break;
     case "clue": {
       const version = room.gameVersion || 0;
       const seenKey = `imp_wordSeen_${state.roomCode}_${version}`;
       if(!sessionStorage.getItem(seenKey)){
+        stopTurnTimer();
         renderWordScreen(room, seenKey);
       } else {
+        updatePersistentHint(room);
         renderClueScreen(room);
       }
       break;
     }
     case "voting":
+      stopTurnTimer();
+      updatePersistentHint(room);
       renderVotingScreen(room);
       break;
     case "results":
+      stopTurnTimer();
+      hidePersistentHint();
       renderResultsScreen(room);
       break;
     default:
+      stopTurnTimer();
+      hidePersistentHint();
       renderLobby(room);
   }
 }
@@ -568,6 +616,27 @@ function updateRoomChip(){
 }
 
 /* ---------------------------------------------------------------------
+   7.ج) تلميحك السري الدائم: يبقى ظاهرًا طوال مرحلتَي التلميحات والتصويت
+   ويختفي فقط عند اللوبي أو النتائج (نهاية الجولة رسميًا). يُحسب دائمًا
+   محليًا حسب state.playerId فقط — كل لاعب يرى كلمته هو حصرًا.
+--------------------------------------------------------------------- */
+function updatePersistentHint(room){
+  const el = $("#persistent-hint");
+  if(!el || !room || !room.words) return;
+  const isImpostor = (room.impostors || []).includes(state.playerId);
+  const myWord = isImpostor ? room.words.impostor : room.words.innocent;
+  el.classList.toggle("is-impostor", isImpostor);
+  $("#ph-label").textContent = isImpostor ? "أنت الأمبوستر" : "كلمتك";
+  $("#ph-word").textContent = myWord;
+  el.classList.remove("hidden");
+}
+
+function hidePersistentHint(){
+  const el = $("#persistent-hint");
+  if(el) el.classList.add("hidden");
+}
+
+/* ---------------------------------------------------------------------
    8) شاشة اللوبي
 --------------------------------------------------------------------- */
 function renderLobby(room){
@@ -604,6 +673,37 @@ function renderLobby(room){
       ? "بانتظار المضيف لبدء الجولة التالية... يمكن لأصدقائك الانضمام الآن بنفس رمز الغرفة"
       : "بانتظار المضيف لبدء اللعبة...";
   }
+
+  renderHostQrCode();
+}
+
+/** يعرض رمز QR للمضيف فقط، يحتوي رابط انضمام مباشر (?room=CODE) يفتح
+ *  التطبيق ويملأ رمز الغرفة تلقائيًا في تبويب "الانضمام". */
+function renderHostQrCode(){
+  const box = $("#qr-box");
+  const canvasEl = $("#qr-canvas");
+  if(!box || !canvasEl) return;
+
+  if(!state.isHost || typeof QRCode === "undefined"){
+    box.classList.add("hidden");
+    return;
+  }
+
+  box.classList.remove("hidden");
+  canvasEl.innerHTML = "";
+  const joinUrl = `${location.origin}${location.pathname}?room=${state.roomCode}`;
+  try{
+    new QRCode(canvasEl, {
+      text: joinUrl,
+      width: 150,
+      height: 150,
+      colorDark: "#12101c",
+      colorLight: "#ffffff"
+    });
+  } catch(e){
+    console.warn("تعذّر توليد رمز QR", e);
+    box.classList.add("hidden");
+  }
 }
 
 $("#btn-start-game").addEventListener("click", () => startGame());
@@ -629,6 +729,7 @@ async function startGame(){
     turnOrder,
     round: 1,
     turnIndex: 0,
+    turnStartedAt: Date.now(),
     cluesLog: [],
     votes: {},
     results: null,
@@ -663,6 +764,7 @@ function renderWordScreen(room, seenKey){
 
   $("#btn-word-continue").onclick = () => {
     sessionStorage.setItem(seenKey, "1");
+    updatePersistentHint(room);
     renderClueScreen(state.roomData);
   };
 }
@@ -678,6 +780,7 @@ function renderClueScreen(room){
   const currentTurnId = (room.turnOrder || [])[room.turnIndex || 0];
   const currentPlayer = players[currentTurnId];
 
+  // بث اسم اللاعب صاحب الدور الحالي لكل من في الغرفة
   $("#turn-player-name").textContent = currentPlayer ? currentPlayer.name : "-";
   $("#turn-avatar").textContent = currentPlayer ? initialsOf(currentPlayer.name) : "؟";
 
@@ -692,15 +795,19 @@ function renderClueScreen(room){
     li.innerHTML = `<span>${escapeHtml(entry.name)}: ${escapeHtml(entry.text)}</span><span class="clue-round-tag">جولة ${entry.round}</span>`;
     log.appendChild(li);
   });
+
+  startTurnTimer(room);
 }
 
-$("#btn-send-clue").addEventListener("click", () => sendClue());
-$("#clue-input").addEventListener("keydown", (e) => { if(e.key === "Enter") sendClue(); });
+$("#btn-send-clue").addEventListener("click", () => sendClue(false));
+$("#clue-input").addEventListener("keydown", (e) => { if(e.key === "Enter") sendClue(false); });
 
-async function sendClue(){
+/** يرسل تلميح اللاعب صاحب الدور الحالي. isAuto=true يعني أن الوقت (15
+ *  ثانية) انتهى، فيُسجَّل الدور تلقائيًا كـ"تخطّى" وينتقل الدور مباشرة. */
+async function sendClue(isAuto){
   const input = $("#clue-input");
-  const text = input.value.trim();
-  if(!text) return;
+  const text = isAuto ? "" : input.value.trim();
+  if(!isAuto && !text) return;
   input.value = "";
 
   await Backend.transaction(state.roomCode, room => {
@@ -714,7 +821,7 @@ async function sendClue(){
       playerId: state.playerId,
       name: (room.players[state.playerId] || {}).name || state.playerName,
       round: room.round,
-      text
+      text: text || "(تخطّى)"
     });
 
     room.turnIndex = (room.turnIndex || 0) + 1;
@@ -726,8 +833,64 @@ async function sendClue(){
         room.votes = {};
       }
     }
+    room.turnStartedAt = Date.now(); // بداية موحّدة للدور التالي
     return room;
   });
+}
+
+/* ---------------------------------------------------------------------
+   10.ب) عدّاد 15 ثانية للدور — مُزامَن عبر room.turnStartedAt، ويُنفَّذ
+   الإرسال التلقائي (تخطّي) فقط من جهاز اللاعب صاحب الدور نفسه.
+--------------------------------------------------------------------- */
+let turnTimerInterval = null;
+const TURN_SECONDS = 15;
+const TURN_TIMER_CIRC = 2 * Math.PI * 17; // محيط الدائرة r=17 في الـ SVG
+
+function startTurnTimer(room){
+  clearInterval(turnTimerInterval);
+  const timerEl = $("#turn-timer");
+  const barEl = $("#tt-bar");
+  const secondsEl = $("#tt-seconds");
+  if(!timerEl || !barEl || !secondsEl) return;
+
+  const startedAt = room.turnStartedAt || Date.now();
+  const currentTurnId = (room.turnOrder || [])[room.turnIndex || 0];
+  const isMyTurn = currentTurnId === state.playerId;
+  const roundAtStart = room.round;
+  const turnIndexAtStart = room.turnIndex || 0;
+  timerEl.classList.remove("hidden", "urgent");
+  let autoFired = false;
+
+  function tick(){
+    const elapsed = (Date.now() - startedAt) / 1000;
+    const remaining = Math.max(0, TURN_SECONDS - elapsed);
+    secondsEl.textContent = Math.ceil(remaining);
+    barEl.style.strokeDashoffset = String(TURN_TIMER_CIRC * (1 - remaining / TURN_SECONDS));
+    timerEl.classList.toggle("urgent", remaining <= 5);
+
+    if(remaining <= 0){
+      clearInterval(turnTimerInterval);
+      // لا نُطلق التخطّي التلقائي إلا إذا كان الدور ما زال لنفس اللاعب/الجولة
+      // (يحمي من إطلاقه بعد أن يكون الدور قد تغيّر بالفعل من مصدر آخر)
+      const stillSameTurn = state.roomData
+        && state.roomData.round === roundAtStart
+        && (state.roomData.turnIndex || 0) === turnIndexAtStart;
+      if(isMyTurn && !autoFired && stillSameTurn){
+        autoFired = true;
+        sendClue(true);
+      }
+    }
+  }
+
+  tick();
+  turnTimerInterval = setInterval(tick, 250);
+}
+
+function stopTurnTimer(){
+  clearInterval(turnTimerInterval);
+  turnTimerInterval = null;
+  const timerEl = $("#turn-timer");
+  if(timerEl) timerEl.classList.add("hidden");
 }
 
 /* ---------------------------------------------------------------------
@@ -761,6 +924,17 @@ function renderVotingScreen(room){
   $("#vote-status-text").textContent = myVote
     ? `تم تسجيل صوتك. بانتظار باقي اللاعبين (${votedCount}/${totalPlayers})`
     : `اختر لاعبًا للتصويت عليه (${votedCount}/${totalPlayers} صوّتوا حتى الآن)`;
+
+  // جدول مرجعي بكل التلميحات المُرسَلة هذه الجولة، مرئي للجميع أثناء التصويت
+  const tbody = $("#voting-clue-tbody");
+  if(tbody){
+    tbody.innerHTML = "";
+    (room.cluesLog || []).forEach(entry => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${escapeHtml(entry.name)}</td><td>${escapeHtml(entry.text || "—")}</td><td>${entry.round}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
 
   // المضيف فقط يقوم باحتساب النتائج بمجرد اكتمال كل الأصوات
   if(state.isHost && votedCount === totalPlayers && totalPlayers > 0){

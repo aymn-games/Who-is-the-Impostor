@@ -168,6 +168,15 @@ body{
 
 .hint-text{ text-align:center; color:var(--text-dim); font-size:13px; margin:16px 0 0; }
 
+/* ===== رمز QR للمضيف (شاشة اللوبي) ===== */
+.qr-box{
+  display:flex; flex-direction:column; align-items:center; gap:10px;
+  margin-bottom:22px; padding:14px; background:var(--bg-panel-2);
+  border:1px solid var(--line); border-radius:var(--radius-md);
+}
+.qr-box .hint-text{ margin:0; }
+#qr-canvas{ background:#fff; padding:10px; border-radius:var(--radius-sm); line-height:0; }
+
 /* ===== شاشة الكلمة السرية (البطاقة القابلة للقلب) ===== */
 .word-card-wrap{ text-align:center; }
 .round-label{ color:var(--text-dim); font-size:13px; margin:0 0 18px; }
@@ -205,6 +214,20 @@ body{
 .turn-text{ font-size:15px; margin:0; }
 .turn-text #turn-player-name{ color:var(--accent-teal); font-weight:700; }
 
+/* عدّاد 15 ثانية دائري، مُزامَن عبر turnStartedAt */
+.turn-timer{ position:relative; width:52px; height:52px; margin-top:2px; }
+.turn-timer svg{ width:100%; height:100%; transform:rotate(-90deg); }
+.tt-bg{ fill:none; stroke:var(--bg-panel-2); stroke-width:4; }
+.tt-bar{
+  fill:none; stroke:var(--accent-teal); stroke-width:4; stroke-linecap:round;
+  stroke-dasharray:106.8; stroke-dashoffset:0; transition:stroke-dashoffset 1s linear;
+}
+.turn-timer.urgent .tt-bar{ stroke:var(--accent-red); }
+.turn-timer #tt-seconds{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-weight:900; font-family:var(--font-display); font-size:13px;
+}
+
 .clue-input-row{ display:flex; gap:8px; }
 .clue-input-row .text-input{ flex:1; }
 
@@ -219,6 +242,12 @@ body{
 .vote-list li:hover{ border-color:var(--accent-teal); }
 .vote-list li.selected{ border-color:var(--accent-red); background:rgba(255,77,103,.12); }
 .vote-list li.disabled{ opacity:.45; pointer-events:none; }
+
+/* جدول سجل التلميحات المعروض أثناء التصويت */
+.clue-table{ width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; }
+.clue-table th, .clue-table td{ padding:8px 10px; border-bottom:1px solid var(--line); text-align:right; }
+.clue-table th{ color:var(--text-dim); font-weight:700; font-family:var(--font-display); font-size:12px; }
+.clue-table tbody tr:last-child td{ border-bottom:none; }
 
 /* ===== شاشة النتائج ===== */
 .result-block{ background:var(--bg-panel-2); border:1px solid var(--line); border-radius:var(--radius-md); padding:16px; margin-bottom:14px; text-align:center; }
@@ -250,6 +279,64 @@ body{
 @media (prefers-reduced-motion: reduce){
   *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
 }
+
+/* ===================================================================
+   زر قوانين اللعبة + النافذة المنبثقة
+=================================================================== */
+.rules-btn{
+  position:fixed; top:14px; left:14px; z-index:60;
+  display:flex; align-items:center; gap:6px;
+  background:rgba(27,24,48,.78); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  border:1px solid var(--line); color:var(--text-main);
+  border-radius:999px; padding:9px 16px; font-family:var(--font-display);
+  font-weight:700; font-size:13px; cursor:pointer; box-shadow:var(--shadow-soft);
+  transition:border-color .2s ease, transform .15s ease;
+}
+.rules-btn:hover{ border-color:var(--accent-teal); }
+.rules-btn:active{ transform:scale(.96); }
+
+.modal-overlay{
+  position:fixed; inset:0; z-index:200; display:flex; align-items:center; justify-content:center;
+  padding:20px; background:rgba(10,8,18,.72); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+}
+.modal-overlay.hidden{ display:none; }
+.modal-box{
+  position:relative; width:100%; max-width:440px; max-height:82vh; overflow-y:auto;
+  background:linear-gradient(180deg, var(--bg-panel), var(--bg-panel-2));
+  border:1px solid var(--line); border-radius:var(--radius-lg);
+  padding:28px 22px 24px; box-shadow:var(--shadow-soft);
+  animation:fadeIn .25s ease;
+}
+.modal-close{
+  position:absolute; top:14px; left:14px; width:30px; height:30px; border-radius:50%;
+  background:var(--bg-panel-2); border:1px solid var(--line); color:var(--text-dim);
+  font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.modal-close:hover{ color:var(--accent-red); border-color:var(--accent-red); }
+.modal-title{
+  font-family:var(--font-display); font-weight:800; font-size:19px;
+  margin:0 0 16px; text-align:center; color:var(--accent-gold);
+}
+.rules-list{ padding-inline-start:20px; margin:0; line-height:1.95; font-size:14px; color:var(--text-main); }
+.rules-list li{ margin-bottom:8px; }
+
+/* ===================================================================
+   تلميحك السري الدائم (طوال الجولة)
+=================================================================== */
+.persistent-hint{
+  position:fixed; bottom:16px; left:50%; transform:translateX(-50%); z-index:40;
+  display:flex; align-items:center; gap:10px;
+  background:rgba(27,24,48,.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  border:1px solid var(--accent-gold); border-radius:999px; padding:9px 20px;
+  box-shadow:var(--shadow-soft); max-width:90vw;
+}
+.persistent-hint .ph-label{ font-size:12px; color:var(--text-dim); white-space:nowrap; }
+.persistent-hint .ph-word{
+  font-family:var(--font-display); font-weight:900; font-size:16px; color:var(--accent-gold);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.persistent-hint.is-impostor{ border-color:var(--accent-red); }
+.persistent-hint.is-impostor .ph-word{ color:var(--accent-red); }
 
 /* ===================================================================
    شعار الترويسة (أعلى المنتصف) — مثبّت فوق الواجهة، يطفو ويتوهج
@@ -294,6 +381,8 @@ body{
 @media (max-width:480px){
   #app{ padding-top:88px; }
   .header-logo{ max-height:56px; }
+  .rules-btn span{ display:none; }
+  .rules-btn{ padding:9px 12px; }
 }
 
 /* ===================================================================

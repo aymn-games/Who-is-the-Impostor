@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -21,6 +22,28 @@
      ولا يؤثر إطلاقًا على منطق اللعبة أو المزامنة. -->
 <div class="intro-splash" id="intro-splash" aria-hidden="true">
   <h1 class="intro-title">من الأمبوستر؟</h1>
+</div>
+
+<!-- ===================== زر قوانين اللعبة (دائم، أعلى الشاشة) =====================
+     يفتح نافذة منبثقة توضّح قواعد اللعبة دون إيقاف أو التأثير على أي
+     حالة لعب حيّة — طبقة عرض بحتة فوق الواجهة. -->
+<button id="btn-rules" class="rules-btn" type="button" aria-haspopup="dialog" aria-controls="rules-modal">
+  📖 <span>قوانين اللعبة</span>
+</button>
+
+<div class="modal-overlay hidden" id="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-modal-title">
+  <div class="modal-box">
+    <button class="modal-close" id="rules-close" type="button" aria-label="إغلاق">✕</button>
+    <h2 id="rules-modal-title" class="modal-title">📖 قوانين اللعبة</h2>
+    <ol class="rules-list">
+      <li>كل لاعب يحصل على كلمة سرية واحدة، باستثناء الأمبوستر الذي يحصل على كلمة مختلفة جذريًا.</li>
+      <li>بالتناوب، يعطي كل لاعب تلميحًا قصيرًا (كلمة أو عبارة) يتعلق بكلمته دون كشفها مباشرة — أمامه 15 ثانية فقط لكل دور.</li>
+      <li>إن انتهى الوقت دون إرسال تلميح، يُسجَّل دوره كـ"تخطّى" تلقائيًا وينتقل الدور للاعب التالي.</li>
+      <li>تتكرر جولات التلميحات 3 مرات لكل اللاعبين، ثم تبدأ مرحلة التصويت.</li>
+      <li>في التصويت يختار كل لاعب من يظن أنه الأمبوستر؛ صاحب أعلى الأصوات يُكشف.</li>
+      <li>الأبرياء يسجّلون نقاطًا بالتصويت الصحيح على الأمبوستر، والأمبوستر يسجّل نقاطًا عن كل لاعب لم يصوّت له.</li>
+    </ol>
+  </div>
 </div>
 
 <!-- ===================== شعار الترويسة (أعلى المنتصف) =====================
@@ -64,6 +87,15 @@
   <h3 class="leaderboard-title">🏆 المتصدرون</h3>
   <ul class="leaderboard-list" id="leaderboard-list"></ul>
 </aside>
+
+<!-- ===================== تلميحك السري الدائم =====================
+     يبقى ظاهرًا طوال الجولة (مرحلة التلميحات + التصويت) ويختفي فقط
+     عند إعلان النتائج أو العودة للوبي — يُحسب محليًا لكل لاعب حسب
+     معرّفه فقط، فلا يرى أي لاعب كلمة غيره. -->
+<div class="persistent-hint hidden" id="persistent-hint" aria-live="polite">
+  <span class="ph-label" id="ph-label">كلمتك</span>
+  <span class="ph-word" id="ph-word">-</span>
+</div>
 
 <main id="app">
 
@@ -135,6 +167,12 @@
         <span class="room-code-value" id="lobby-room-code">-----</span>
       </div>
 
+      <!-- رمز QR للمضيف فقط: يحتوي رابط انضمام مباشر يملأ الرمز تلقائيًا -->
+      <div class="qr-box hidden" id="qr-box">
+        <p class="hint-text">امسح الرمز للانضمام مباشرة من جهازك</p>
+        <div id="qr-canvas"></div>
+      </div>
+
       <h2 class="section-title">اللاعبون في الغرفة</h2>
       <ul class="player-list" id="lobby-player-list"></ul>
 
@@ -174,6 +212,14 @@
       <div class="turn-indicator" id="turn-indicator">
         <span class="turn-avatar" id="turn-avatar">؟</span>
         <p class="turn-text"><span id="turn-player-name">-</span> يعطي تلميحه الآن</p>
+        <!-- عدّاد 15 ثانية مُزامَن للجميع عبر turnStartedAt في الغرفة -->
+        <div class="turn-timer hidden" id="turn-timer">
+          <svg viewBox="0 0 40 40" aria-hidden="true">
+            <circle class="tt-bg" cx="20" cy="20" r="17"></circle>
+            <circle class="tt-bar" id="tt-bar" cx="20" cy="20" r="17"></circle>
+          </svg>
+          <span id="tt-seconds">15</span>
+        </div>
       </div>
 
       <div class="clue-input-row" id="clue-input-row">
@@ -194,6 +240,15 @@
       <p class="hint-text">صوتك سري ولن يظهر لأحد قبل النتائج</p>
       <ul class="vote-list" id="vote-list"></ul>
       <p class="hint-text" id="vote-status-text"></p>
+
+      <!-- جدول مرجعي بكل التلميحات المُرسَلة هذه الجولة، مرئي للجميع أثناء التصويت -->
+      <h3 class="section-title small">سجل التلميحات هذه الجولة</h3>
+      <table class="clue-table" id="voting-clue-table">
+        <thead>
+          <tr><th>اللاعب</th><th>التلميح</th><th>الجولة</th></tr>
+        </thead>
+        <tbody id="voting-clue-tbody"></tbody>
+      </table>
     </div>
   </section>
 
@@ -232,7 +287,8 @@
      Firebase SDK (Modular v12.15.0) — يتم استيراده مباشرةً داخل
      ملف script.js عبر import (لهذا السبب لا حاجة لأي وسم إضافي هنا
      غير وسم الوحدة النمطية أدناه). بيانات مشروعك موجودة في أعلى
-     script.js داخل المتغيّر firebaseConfig.
+     script.js داخل المتغيّر firebaseConfig — هذا هو المصدر الوحيد،
+     ولا يوجد أي كود Firebase آخر مكرر في هذا الملف.
      ============================================================ -->
 <script type="module" src="script.js"></script>
 </body>
