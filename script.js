@@ -373,6 +373,18 @@ function randomRoomCode(){
   return String(Math.floor(10000 + Math.random() * 90000));
 }
 
+/* إعدادات الغرفة (تُحفظ في room.settings): عدد مرات كتابة التلميح،
+   وقت كتابة التلميح بالثواني، وعدد جولات المباراة. */
+const DEFAULT_SETTINGS = { hintRounds: 3, hintTime: 15, gameRounds: 5 };
+
+function getRoomSettings(room){
+  return Object.assign({}, DEFAULT_SETTINGS, (room && room.settings) || {});
+}
+
+function hintsLabel(hintRounds){
+  return hintRounds === 2 ? "تلميحان" : "3 تلميحات";
+}
+
 function shuffleArray(arr){
   const a = arr.slice();
   for(let i=a.length-1;i>0;i--){
@@ -416,7 +428,6 @@ function setupHelpModal(openBtnSel, modalSel, closeBtnSel){
   });
 }
 setupHelpModal("#btn-rules", "#rules-modal", "#rules-close");
-setupHelpModal("#btn-howto", "#howto-modal", "#howto-close");
 
 /* ---------------------------------------------------------------------
    4.ج) تعبئة رمز الغرفة تلقائيًا عند فتح رابط QR (?room=CODE) — كل حقول
@@ -426,8 +437,23 @@ setupHelpModal("#btn-howto", "#howto-modal", "#howto-close");
   const roomParam = new URLSearchParams(location.search).get("room");
   if(!roomParam) return;
   const joinCodeInput = $("#join-code");
-  if(joinCodeInput) joinCodeInput.value = roomParam.replace(/\D/g, "");
+  if(joinCodeInput) joinCodeInput.value = roomParam.replace(/\D/g, "").slice(0, 5);
 })();
+
+/* حقل رمز الغرفة: أرقام فقط وبحد أقصى 5، ونص المساعدة تحت "شارك كلاعب"
+   يتغيّر حسب وجود رمز. */
+function updateShareHint(){
+  const code = $("#join-code").value;
+  $("#share-hint").textContent = code
+    ? `ستنضم مباشرة إلى الغرفة ${code}`
+    : "اختصار سريع: يُنشئ غرفة جديدة إن تُرك رمز الغرفة فارغًا، أو ينضم مباشرة إن كُتب رمز غرفة قائمة";
+}
+$("#join-code").addEventListener("input", (e) => {
+  const clean = e.target.value.replace(/\D/g, "").slice(0, 5);
+  if(e.target.value !== clean) e.target.value = clean;
+  updateShareHint();
+});
+updateShareHint();
 
 /* ---------------------------------------------------------------------
    5) الشاشة الرئيسية: كل أزرار الدخول ظاهرة معًا بلا تبويبات —
@@ -444,7 +470,7 @@ function readJoinCode(){
 }
 
 /** إنشاء غرفة جديدة والانضمام إليها كلاعب فعلي (مضيف). */
-async function createRoomAsPlayer(name){
+async function createRoomAsPlayer(name, settings = DEFAULT_SETTINGS){
   // يولّد رمزًا من 5 أرقام ويتأكد أنه غير مستخدم حاليًا (لن يتجمد أبدًا:
   // في الوضع المحلي القراءة فورية، وفي وضع Firebase هي قراءة واحدة سريعة)
   let code, existing;
@@ -467,6 +493,7 @@ async function createRoomAsPlayer(name){
     status: "lobby",
     createdAt: Date.now(),
     gameVersion: 0,
+    settings: Object.assign({}, DEFAULT_SETTINGS, settings),
     players: {
       [state.playerId]: { name, score: 0, connected: true, joinedAt: Date.now() }
     }
@@ -533,21 +560,118 @@ async function joinRoomAsSpectator(name, code){
   return true;
 }
 
-$("#btn-create-room").addEventListener("click", async () => {
+/** "إنشاء غرفة" يفتح نافذة إعدادات الغرفة أولًا، ثم تُنشأ الغرفة عند
+ *  الضغط على "إنشاء الغرفة" داخل النافذة. */
+$("#btn-create-room").addEventListener("click", () => {
   const name = requireHomeName();
   if(!name) return;
-  const btn = $("#btn-create-room");
-  btn.disabled = true;
   $("#home-error").textContent = "";
-  try{
-    await createRoomAsPlayer(name);
-  } catch(err){
-    console.error(err);
-    $("#home-error").textContent = "حدث خطأ غير متوقع أثناء إنشاء الغرفة. حاول مرة أخرى.";
-  } finally {
-    btn.disabled = false;
-  }
+  openRoomSettings("create", DEFAULT_SETTINGS, $("#btn-create-room"));
 });
+
+/* ---------------------------------------------------------------------
+   5.ب) نافذة إعدادات الغرفة — وضعان:
+   "create": قبل إنشاء غرفة جديدة (من الشاشة الرئيسية).
+   "edit":   المضيف يعدّل إعدادات نفس الغرفة من غرفة الانتظار.
+--------------------------------------------------------------------- */
+const roomSettingsUI = { mode: "create", values: { ...DEFAULT_SETTINGS }, returnFocus: null };
+
+function renderRoomSettingsUI(){
+  const v = roomSettingsUI.values;
+  $all("#room-settings-modal .rs-seg").forEach(group => {
+    const key = group.dataset.setting;
+    group.querySelectorAll("button[role=radio]").forEach(btn => {
+      const checked = Number(btn.dataset.value) === v[key];
+      btn.setAttribute("aria-checked", String(checked));
+      btn.tabIndex = checked ? 0 : -1;
+    });
+  });
+  $("#rs-summary").textContent =
+    `${v.gameRounds} جولات · ${hintsLabel(v.hintRounds)} لكل لاعب · ${v.hintTime} ثانية للتلميح`;
+}
+
+function openRoomSettings(mode, values, returnFocus){
+  roomSettingsUI.mode = mode;
+  roomSettingsUI.values = { ...DEFAULT_SETTINGS, ...values };
+  roomSettingsUI.returnFocus = returnFocus || null;
+  $("#rs-eyebrow").textContent = mode === "edit" ? "غرفة الانتظار" : "غرفة جديدة";
+  $("#rs-confirm").textContent = mode === "edit" ? "حفظ الإعدادات" : "إنشاء الغرفة";
+  $("#rs-confirm").disabled = false;
+  renderRoomSettingsUI();
+  $("#room-settings-modal").classList.remove("hidden");
+  const first = $("#room-settings-modal .rs-seg button[aria-checked=true]");
+  if(first) first.focus();
+}
+
+function closeRoomSettings(){
+  const modal = $("#room-settings-modal");
+  if(modal.classList.contains("hidden")) return;
+  modal.classList.add("hidden");
+  if(roomSettingsUI.returnFocus) roomSettingsUI.returnFocus.focus();
+}
+
+(function setupRoomSettingsModal(){
+  const modal = $("#room-settings-modal");
+  $all("#room-settings-modal .rs-seg").forEach(group => {
+    const key = group.dataset.setting;
+    const buttons = Array.from(group.querySelectorAll("button[role=radio]"));
+    buttons.forEach((btn, i) => {
+      btn.addEventListener("click", () => {
+        roomSettingsUI.values[key] = Number(btn.dataset.value);
+        renderRoomSettingsUI();
+      });
+      // الأسهم تنقل الاختيار داخل المجموعة (الاتجاه RTL: السهم الأيسر = التالي)
+      btn.addEventListener("keydown", (e) => {
+        let next = null;
+        if(e.key === "ArrowLeft" || e.key === "ArrowDown") next = buttons[(i + 1) % buttons.length];
+        if(e.key === "ArrowRight" || e.key === "ArrowUp") next = buttons[(i - 1 + buttons.length) % buttons.length];
+        if(!next) return;
+        e.preventDefault();
+        roomSettingsUI.values[key] = Number(next.dataset.value);
+        renderRoomSettingsUI();
+        next.focus();
+      });
+    });
+  });
+
+  $("#rs-close").addEventListener("click", closeRoomSettings);
+  $("#rs-cancel").addEventListener("click", closeRoomSettings);
+  modal.addEventListener("click", (e) => { if(e.target === modal) closeRoomSettings(); });
+  document.addEventListener("keydown", (e) => {
+    if(e.key === "Escape") closeRoomSettings();
+  });
+
+  $("#rs-confirm").addEventListener("click", async () => {
+    const btn = $("#rs-confirm");
+    const settings = { ...roomSettingsUI.values };
+    btn.disabled = true;
+    try{
+      if(roomSettingsUI.mode === "edit"){
+        // تحديث إعدادات نفس الغرفة — لا تُنشأ غرفة جديدة
+        if(state.roomCode) await Backend.updateRoom(state.roomCode, { settings });
+        roomSettingsUI.returnFocus = $("#btn-back-settings");
+        closeRoomSettings();
+      } else {
+        const name = requireHomeName();
+        if(!name){ closeRoomSettings(); return; }
+        roomSettingsUI.returnFocus = null;
+        closeRoomSettings();
+        $("#home-error").textContent = "";
+        await createRoomAsPlayer(name, settings);
+      }
+    } catch(err){
+      console.error(err);
+      closeRoomSettings();
+      if(roomSettingsUI.mode === "edit"){
+        $("#lobby-error").textContent = "تعذّر حفظ الإعدادات. حاول مرة أخرى.";
+      } else {
+        $("#home-error").textContent = "حدث خطأ غير متوقع أثناء إنشاء الغرفة. حاول مرة أخرى.";
+      }
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
 
 $("#btn-join-room").addEventListener("click", async () => {
   const name = requireHomeName();
@@ -642,11 +766,14 @@ function resetToHome(){
     roomCode:null, playerId:null, playerName:null, isHost:false, isSpectator:false,
     unsubscribe:null, roomData:null
   });
+  lobbyLastPlayerCount = 0;
+  closeRoomSettings();
   showScreen("screen-home");
   const nameInput = $("#home-name");
   const codeInput = $("#join-code");
   if(nameInput) nameInput.value = "";
   if(codeInput) codeInput.value = "";
+  updateShareHint();
   $("#home-error").textContent = "";
   renderLeaderboard(null);
   updateRoomChip();
@@ -776,67 +903,100 @@ function hidePersistentHint(){
 /* ---------------------------------------------------------------------
    8) شاشة اللوبي
 --------------------------------------------------------------------- */
+const AVATAR_COLORS = ["#7c5cff", "#2dd4bf", "#f0c048", "#e879c9", "#5b8cff", "#f97373"];
+let lobbyLastPlayerCount = 0;
+
+function roomJoinUrl(){
+  return `${location.origin}${location.pathname}?room=${state.roomCode}`;
+}
+
 function renderLobby(room){
   showScreen("screen-lobby");
   $("#lobby-room-code").textContent = state.roomCode;
 
+  // شارات الإعدادات المختارة
+  const settings = getRoomSettings(room);
+  $("#wr-chip-rounds").textContent = `${settings.gameRounds} جولات`;
+  $("#wr-chip-hints").textContent = `${hintsLabel(settings.hintRounds)} لكل لاعب`;
+  $("#wr-chip-time").textContent = `${settings.hintTime} ثانية للتلميح`;
+
+  // قائمة اللاعبين الحيّة (مرتّبة حسب وقت الانضمام)
   const players = room.players || {};
-  const ids = Object.keys(players);
+  const ids = Object.keys(players)
+    .sort((a, b) => (players[a].joinedAt || 0) - (players[b].joinedAt || 0));
+  $("#lobby-player-count").textContent = String(ids.length);
+
   const list = $("#lobby-player-list");
   list.innerHTML = "";
-  ids.forEach(id => {
+  ids.forEach((id, i) => {
     const p = players[id];
     const li = document.createElement("li");
+    li.className = "wr-player";
     li.innerHTML = `
-      <span>${escapeHtml(p.name)} ${id === state.playerId ? '<span class="tag-you">(أنت)</span>' : ""}</span>
-      ${id === room.hostId ? '<span class="tag-host">المضيف</span>' : ""}
+      <div class="wr-avatar" style="background:${AVATAR_COLORS[i % AVATAR_COLORS.length]}">${escapeHtml(initialsOf(p.name))}</div>
+      <span class="wr-name">${escapeHtml(p.name)}${id === state.playerId ? ' <span class="tag-you">(أنت)</span>' : ""}</span>
+      ${id === room.hostId ? '<span class="wr-host">المضيف</span>' : ""}
     `;
     list.appendChild(li);
   });
+  const waiting = document.createElement("li");
+  waiting.className = "wr-waiting";
+  waiting.textContent = "بانتظار انضمام اللاعبين…";
+  list.appendChild(waiting);
+
+  // التمرير تلقائيًا لأحدث لاعب عند انضمامه
+  if(ids.length > lobbyLastPlayerCount && lobbyLastPlayerCount > 0){
+    list.scrollTop = list.scrollHeight;
+  }
+  lobbyLastPlayerCount = ids.length;
 
   const isNextRound = (room.gameVersion || 0) > 0;
+  const ready = ids.length >= 3;
   const startBtn = $("#btn-start-game");
+  const backBtn = $("#btn-back-settings");
   const hint = $("#lobby-hint");
   if(state.isSpectator){
     startBtn.classList.add("hidden");
+    backBtn.classList.add("hidden");
     hint.textContent = "أنت في وضع شاشة عرض للبث — بانتظار بدء الجولة...";
   } else if(state.isHost){
     startBtn.classList.remove("hidden");
-    startBtn.textContent = isNextRound ? "ابدأ الجولة التالية" : "ابدأ اللعبة";
-    hint.textContent = ids.length < 3
-      ? "تحتاج 3 لاعبين على الأقل لبدء اللعبة"
-      : (isNextRound ? "يمكن لأي لاعب جديد الانضمام الآن برمز الغرفة قبل أن تبدأ" : "كل شيء جاهز — اضغط ابدأ اللعبة");
-    startBtn.disabled = ids.length < 3;
+    backBtn.classList.remove("hidden");
+    startBtn.textContent = isNextRound ? "ابدأ الجولة التالية" : "الدخول وبدء المباراة";
+    startBtn.setAttribute("aria-disabled", String(!ready));
+    hint.textContent = ready ? "سيدخل جميع اللاعبين المباراة معك" : "تحتاج 3 لاعبين على الأقل للبدء";
   } else {
     startBtn.classList.add("hidden");
+    backBtn.classList.add("hidden");
     hint.textContent = isNextRound
       ? "بانتظار المضيف لبدء الجولة التالية... يمكن لأصدقائك الانضمام الآن بنفس رمز الغرفة"
       : "بانتظار المضيف لبدء اللعبة...";
   }
 
-  renderHostQrCode();
+  renderRoomQrCode();
 }
 
-/** يعرض رمز QR للمضيف فقط، يحتوي رابط انضمام مباشر (?room=CODE) يفتح
- *  التطبيق ويملأ رمز الغرفة تلقائيًا في تبويب "الانضمام". */
-function renderHostQrCode(){
+/** رمز QR يحتوي رابط انضمام مباشر (?room=CODE) يفتح التطبيق ويملأ رمز
+ *  الغرفة تلقائيًا. يُعاد توليده فقط عند تغيّر رمز الغرفة. */
+function renderRoomQrCode(){
   const box = $("#qr-box");
   const canvasEl = $("#qr-canvas");
   if(!box || !canvasEl) return;
 
-  if(!state.isHost || typeof QRCode === "undefined"){
+  if(typeof QRCode === "undefined"){
     box.classList.add("hidden");
     return;
   }
-
   box.classList.remove("hidden");
+  if(canvasEl.dataset.room === state.roomCode) return;
+
   canvasEl.innerHTML = "";
-  const joinUrl = `${location.origin}${location.pathname}?room=${state.roomCode}`;
+  canvasEl.dataset.room = state.roomCode;
   try{
     new QRCode(canvasEl, {
-      text: joinUrl,
-      width: 150,
-      height: 150,
+      text: roomJoinUrl(),
+      width: 400,
+      height: 400,
       colorDark: "#12101c",
       colorLight: "#ffffff"
     });
@@ -846,7 +1006,32 @@ function renderHostQrCode(){
   }
 }
 
-$("#btn-start-game").addEventListener("click", () => startGame());
+function copyToClipboard(text, btn, label){
+  const done = () => {
+    btn.textContent = "تم النسخ ✓";
+    clearTimeout(btn._copyT);
+    btn._copyT = setTimeout(() => { btn.textContent = label; }, 1500);
+  };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(() => toast("تعذّر النسخ"));
+  } else {
+    toast("تعذّر النسخ");
+  }
+}
+
+$("#btn-copy-code").addEventListener("click", (e) => copyToClipboard(state.roomCode || "", e.currentTarget, "نسخ الرقم"));
+$("#btn-copy-link").addEventListener("click", (e) => copyToClipboard(roomJoinUrl(), e.currentTarget, "نسخ الرابط"));
+
+$("#btn-back-settings").addEventListener("click", (e) => {
+  if(!state.isHost || !state.roomData) return;
+  $("#lobby-error").textContent = "";
+  openRoomSettings("edit", getRoomSettings(state.roomData), e.currentTarget);
+});
+
+$("#btn-start-game").addEventListener("click", () => {
+  if($("#btn-start-game").getAttribute("aria-disabled") === "true") return;
+  startGame();
+});
 
 async function startGame(){
   const room = state.roomData;
@@ -915,6 +1100,7 @@ function renderWordScreen(room, seenKey){
 function renderClueScreen(room){
   showScreen("screen-clue");
   $("#clue-round-num").textContent = room.round;
+  $("#clue-round-total").textContent = getRoomSettings(room).hintRounds;
 
   const players = room.players || {};
   const currentTurnId = (room.turnOrder || [])[room.turnIndex || 0];
@@ -968,7 +1154,7 @@ async function sendClue(isAuto){
     if(room.turnIndex >= (room.turnOrder || []).length){
       room.turnIndex = 0;
       room.round = (room.round || 1) + 1;
-      if(room.round > 3){
+      if(room.round > getRoomSettings(room).hintRounds){
         room.status = "voting";
         room.votes = {};
       }
@@ -983,7 +1169,6 @@ async function sendClue(isAuto){
    الإرسال التلقائي (تخطّي) فقط من جهاز اللاعب صاحب الدور نفسه.
 --------------------------------------------------------------------- */
 let turnTimerInterval = null;
-const TURN_SECONDS = 15;
 const TURN_TIMER_CIRC = 2 * Math.PI * 17; // محيط الدائرة r=17 في الـ SVG
 
 function startTurnTimer(room){
@@ -994,6 +1179,7 @@ function startTurnTimer(room){
   if(!timerEl || !barEl || !secondsEl) return;
 
   const startedAt = room.turnStartedAt || Date.now();
+  const TURN_SECONDS = getRoomSettings(room).hintTime;
   const currentTurnId = (room.turnOrder || [])[room.turnIndex || 0];
   const isMyTurn = currentTurnId === state.playerId;
   const roundAtStart = room.round;

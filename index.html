@@ -6,7 +6,7 @@
 <title>من الأمبوستر؟</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&family=Tajawal:wght@400;500;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -24,20 +24,25 @@
   <h1 class="intro-title">من الأمبوستر؟</h1>
 </div>
 
-<!-- ===================== أزرار التعليمات الثابتة (دائمة، أعلى الشاشة) =====================
-     زران ثابتان يظهران في كل الشاشات قبل وأثناء اللعب:
-     1) "قوانين اللعبة" (القديم) — يشرح قواعد اللعب والتصويت.
-     2) "تعليمات اللعبة" (الجديد) — يشرح كيفية استخدام الواجهة نفسها
-        (إنشاء/انضمام/مشاركة كلاعب/مشاهدة كبثّ).
-     كلاهما طبقة عرض بحتة، لا تؤثر على أي حالة لعب حيّة. -->
-<div class="help-buttons-bar">
-  <button id="btn-rules" class="rules-btn" type="button" aria-haspopup="dialog" aria-controls="rules-modal">
-    📖 <span>قوانين اللعبة</span>
-  </button>
-  <button id="btn-howto" class="rules-btn" type="button" aria-haspopup="dialog" aria-controls="howto-modal">
-    ❓ <span>تعليمات اللعبة</span>
-  </button>
-</div>
+<!-- ===================== الترويسة العلوية =====================
+     الشعار (يمين) يعيد لموقع ألعاب أيمن، وفي اليسار: زر "قوانين اللعبة"
+     + شارة الحساب + شارة رمز الغرفة (تظهر فقط داخل غرفة). -->
+<header class="top-bar">
+  <a class="top-bar-logo" href="https://ayman-games.vercel.app/">
+    <img src="aymn-logo.png" alt="ألعاب أيمن">
+  </a>
+  <nav class="top-bar-nav">
+    <div class="room-code-chip hidden" id="global-room-chip">
+      <span class="chip-label">رمز الغرفة</span>
+      <span class="chip-value" id="global-room-chip-value">-----</span>
+    </div>
+    <button id="btn-rules" class="top-pill" type="button" aria-haspopup="dialog" aria-controls="rules-modal">قوانين اللعبة</button>
+    <div class="user-chip">
+      <span class="user-chip-avatar" aria-hidden="true">E</span>
+      <span class="user-chip-name">em70_q</span>
+    </div>
+  </nav>
+</header>
 
 <div class="modal-overlay hidden" id="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-modal-title">
   <div class="modal-box">
@@ -54,63 +59,10 @@
   </div>
 </div>
 
-<div class="modal-overlay hidden" id="howto-modal" role="dialog" aria-modal="true" aria-labelledby="howto-modal-title">
-  <div class="modal-box">
-    <button class="modal-close" id="howto-close" type="button" aria-label="إغلاق">✕</button>
-    <h2 id="howto-modal-title" class="modal-title">❓ تعليمات اللعبة</h2>
-    <ol class="rules-list">
-      <li>اكتب اسمك في الحقل الظاهر أعلى البطاقة الرئيسية.</li>
-      <li>اضغط "إنشاء غرفة" لبدء غرفة جديدة برمز عشوائي تشاركه مع أصدقائك، أو أدخل رمز غرفة صديقك واضغط "الانضمام لغرفة".</li>
-      <li>زر "شارك كلاعب" اختصار سريع: يُنشئ غرفة جديدة إن ترك حقل الرمز فارغًا، أو ينضم مباشرة إن كتبت رمز غرفة قائمة — وفي الحالتين تصبح لاعبًا فعليًا يحصل على دور سرّي (أمبوستر أو غير أمبوستر) لا يراه أحد سواك.</li>
-      <li>زر "شاشة عرض للبث" ينقلك إلى وضع المشاهدة فقط: أدخل رمز غرفة قائمة بالفعل لمتابعة أسماء اللاعبين، شات التلميحات الحيّ، ولوحة التصويت، دون المشاركة في التصويت أو اللعب المباشر.</li>
-      <li>يمكنك فتح "قوانين اللعبة" في أي وقت لمعرفة تفاصيل كيفية اللعب والفوز.</li>
-    </ol>
-  </div>
-</div>
-
-<!-- ===================== شعار الترويسة (أعلى المنتصف) =====================
-     ضع ملف البانر باسم main-banner.png بجانب index.html ليظهر هنا
-     تلقائيًا. في حال عدم وجود الملف، يختفي الشعار بأمان دون كسر
-     الصفحة (onerror). حركة عائمة/نبض مستمرة مضبوطة في style.css. -->
-<header class="site-header" id="site-header">
-  <img src="main-banner.png" alt="ألعاب أيمن" class="header-logo" id="header-logo"
-       onerror="this.closest('#site-header').classList.add('logo-missing')">
-</header>
-
 <!-- ===================== شعار عائم (الجانب الأيسر) =====================
      غلاف عائم بحركة CSS بسيطة — استبدل المحتوى بشعارك الخاص إن أردت. -->
 <div class="floating-logo" id="floating-logo" aria-hidden="true">
   <span class="floating-logo-icon">🕵️</span>
-</div>
-
-<!-- ===================== التوقيع العائم (الجانب الأيمن) =====================
-     شعار توقيع دائري صغير يحمل حساب TikTok، يطفو رأسيًا بحركة CSS
-     مستمرة. ضع ملف الصورة باسم signature-logo.png بجانب index.html؛
-     وفي حال عدم وجوده يظهر الحرف الأول من الحساب كبديل آمن بدل صورة
-     مكسورة. -->
-<!-- ===================== زر عائم: العودة لموقع ألعاب أيمن (أسفل اليسار) =====================
-     زر صغير ثابت (fixed) في الزاوية السفلية اليسرى — زاوية فارغة لا
-     تتداخل مع أي عنصر آخر (التوقيع في أسفل اليمين، والشعار العائم في
-     منتصف اليسار). يفتح موقع "ألعاب أيمن" مباشرة، بنمط مختلف عن أزرار
-     اللعبة (خروج/عودة). -->
-<a id="btn-back-home-site" class="back-site-btn" href="https://ayman-games.vercel.app/">
-  ↩️ <span>ألعاب أيمن</span>
-</a>
-
-<div class="signature-badge" id="signature-badge" aria-label="التوقيع الرسمي: em70_q على تيك توك">
-  <img src="signature-logo.png" alt="em70_q" class="signature-img" id="signature-logo"
-       onerror="this.closest('#signature-badge').classList.add('signature-missing')">
-  <span class="signature-fallback" aria-hidden="true">@</span>
-  <span class="signature-handle">em70_q</span>
-</div>
-
-<!-- ===================== شارة رمز الغرفة الدائمة =====================
-     تبقى ظاهرة عبر كل شاشات اللعب (وليس فقط اللوبي) حتى يسهل على
-     المضيف مشاركة الرمز مع لاعبين جدد في أي وقت، بما في ذلك فترة
-     الانتظار بين الجولات. -->
-<div class="room-code-chip hidden" id="global-room-chip">
-  <span class="chip-label">رمز الغرفة</span>
-  <span class="chip-value" id="global-room-chip-value">-----</span>
 </div>
 
 <!-- ===================== لوحة المتصدرين الحيّة (الجانب الأيمن) ===================== -->
@@ -131,22 +83,22 @@
 <main id="app">
 
   <!-- ===================== شاشة البداية: إنشاء / انضمام ===================== -->
-  <section class="screen active" id="screen-home">
-    <div class="card home-card">
-      <div class="brand">
-        <span class="brand-eye">👁</span>
-        <h1>من الأمبوستر؟</h1>
-        <p class="tagline">لعبة الخداع الاجتماعي — من يخفي الحقيقة بينكم؟</p>
-      </div>
+  <section class="screen screen-home-wide active" id="screen-home">
+    <div class="home-grid">
 
-      <div class="setup-banner hidden" id="setup-banner">
-        <strong>⚠️ وضع تجريبي محلي</strong>
-        <span>لم يتم ربط Firebase بعد، لذا لن يتمكن أصدقاؤك من الانضمام من أجهزتهم. افتح التفاصيل أدناه لإعداد ذلك خلال دقائق.</span>
-      </div>
+      <section class="home-hero">
+        <span class="home-tag">لعبة الخداع الاجتماعي</span>
+        <h1 class="home-h1">من الأمبوستر؟</h1>
+        <p class="home-lead">من يخفي الحقيقة بينكم؟ أنشئ غرفة وشارك الرمز مع أصدقائك، أو انضم لغرفة قائمة.</p>
 
-      <details class="setup-guide" id="setup-guide">
-        <summary>📡 كيف ألعب مع أصدقائي من أجهزة مختلفة؟</summary>
-        <div class="setup-guide-body">
+        <div class="setup-banner hidden" id="setup-banner">
+          <strong>⚠️ وضع تجريبي محلي</strong>
+          <span>لم يتم ربط Firebase بعد، لذا لن يتمكن أصدقاؤك من الانضمام من أجهزتهم. افتح التفاصيل أدناه لإعداد ذلك خلال دقائق.</span>
+        </div>
+
+        <details class="setup-guide home-howto" id="setup-guide">
+          <summary><span>كيف ألعب مع أصدقائي من أجهزة مختلفة؟</span><span class="home-howto-arrow" aria-hidden="true">←</span></summary>
+          <div class="setup-guide-body">
           <p><strong>الخطوة 1 — أنشئ قاعدة بيانات مجانية (Firebase):</strong></p>
           <ol>
             <li>ادخل إلى <span class="code-inline">console.firebase.google.com</span> وسجّل الدخول بحساب Google.</li>
@@ -165,53 +117,94 @@
           </ul>
           <p class="setup-note">بعد ضبط Firebase بشكل صحيح، ستختفي هذه الرسالة تلقائيًا وسيعمل الانضمام من أي جهاز وأي مكان.</p>
         </div>
-      </details>
+        </details>
+      </section>
 
-      <!-- ===================== حقل الاسم ===================== -->
-      <label class="field-label" for="home-name">اسمك</label>
-      <input id="home-name" class="text-input" type="text" maxlength="16" placeholder="اكتب اسمك هنا">
+      <section class="home-card-new">
+        <label class="home-field">
+          <span class="home-field-label">اسمك</span>
+          <input id="home-name" class="home-input" type="text" maxlength="16" placeholder="اكتب اسمك هنا" autocomplete="nickname">
+        </label>
+        <p class="error-msg home-error" id="home-error" role="alert"></p>
 
-      <!-- ===================== إنشاء غرفة (الأصلي) ===================== -->
-      <button id="btn-create-room" class="btn btn-primary">➕ إنشاء غرفة</button>
+        <div class="home-tiles">
+          <div class="home-tile">
+            <span class="home-tile-cap">غرفة جديدة</span>
+            <div class="home-tile-text">ابدأ غرفة وادعُ أصدقاءك برمزها</div>
+            <button type="button" id="btn-create-room" class="hb hb-primary">إنشاء غرفة</button>
+          </div>
+          <div class="home-tile">
+            <label class="home-tile-cap" for="join-code">رمز الغرفة</label>
+            <input id="join-code" class="home-input home-code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="5" placeholder="12345" autocomplete="off">
+            <button type="button" id="btn-join-room" class="hb hb-outline">الانضمام لغرفة</button>
+          </div>
+        </div>
 
-      <!-- ===================== الانضمام لغرفة (الأصلي) ===================== -->
-      <label class="field-label" for="join-code">رمز الغرفة</label>
-      <input id="join-code" class="text-input code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="5" placeholder="12345">
-      <button id="btn-join-room" class="btn btn-primary">🔑 الانضمام لغرفة</button>
+        <div class="home-or" role="separator"><span>أو</span></div>
 
-      <div class="home-divider" role="separator"></div>
-
-      <!-- ===================== زر جديد: شارك كلاعب ===================== -->
-      <button id="btn-share-player" class="btn btn-share">🎮 شارك كلاعب</button>
-      <p class="hint-text home-btn-hint">اختصار سريع: يُنشئ غرفة جديدة إن ترك حقل رمز الغرفة فارغًا، أو ينضم مباشرة إن كُتب رمز غرفة قائمة</p>
-
-      <!-- ===================== زر جديد: شاشة عرض للبث ===================== -->
-      <button id="btn-broadcast-view" class="btn btn-outline">📺 شاشة عرض للبث</button>
-      <p class="hint-text home-btn-hint">للمتابعة كمشاهد فقط (بدون تصويت أو لعب) — يتطلب رمز غرفة قائمة بالأعلى</p>
-
-      <p class="error-msg" id="home-error"></p>
+        <div class="home-tiles">
+          <div class="home-secondary">
+            <button type="button" id="btn-share-player" class="hb hb-yellow hb-tall">شارك كلاعب</button>
+            <span class="home-help" id="share-hint">اختصار سريع: يُنشئ غرفة جديدة إن تُرك رمز الغرفة فارغًا، أو ينضم مباشرة إن كُتب رمز غرفة قائمة</span>
+          </div>
+          <div class="home-secondary">
+            <button type="button" id="btn-broadcast-view" class="hb hb-ghost hb-tall">شاشة عرض للبث</button>
+            <span class="home-help">للمتابعة كمشاهد فقط (بدون تصويت أو لعب) – يتطلب رمز غرفة قائمة</span>
+          </div>
+        </div>
+      </section>
     </div>
   </section>
 
   <!-- ===================== شاشة الانتظار (اللوبي) ===================== -->
-  <section class="screen" id="screen-lobby">
-    <div class="card">
-      <div class="room-code-box">
-        <span class="room-code-label">رمز الغرفة</span>
-        <span class="room-code-value" id="lobby-room-code">-----</span>
+  <section class="screen screen-wide" id="screen-lobby">
+    <div class="wr">
+
+      <div class="wr-title-row">
+        <div class="wr-title">
+          <span class="wr-eyebrow">غرفة الانتظار</span>
+          <h1 class="wr-h1">ادعُ أصدقاءك للغرفة</h1>
+        </div>
+        <div class="wr-chips">
+          <span class="wr-chip" id="wr-chip-rounds">5 جولات</span>
+          <span class="wr-chip" id="wr-chip-hints">3 تلميحات لكل لاعب</span>
+          <span class="wr-chip" id="wr-chip-time">15 ثانية للتلميح</span>
+        </div>
       </div>
 
-      <!-- رمز QR للمضيف فقط: يحتوي رابط انضمام مباشر يملأ الرمز تلقائيًا -->
-      <div class="qr-box hidden" id="qr-box">
-        <p class="hint-text">امسح الرمز للانضمام مباشرة من جهازك</p>
-        <div id="qr-canvas"></div>
+      <div class="wr-grid">
+        <section class="wr-card wr-room-card">
+          <div class="wr-code-wrap">
+            <span class="wr-code-label">رقم الغرفة</span>
+            <span class="wr-code" id="lobby-room-code">-----</span>
+          </div>
+          <!-- رمز QR: رابط انضمام مباشر (?room=CODE) يملأ رمز الغرفة تلقائيًا -->
+          <div class="wr-qr" id="qr-box">
+            <div id="qr-canvas"></div>
+          </div>
+          <span class="wr-qr-caption">امسح الباركود بكاميرا الجوال للدخول مباشرة إلى الغرفة</span>
+          <div class="wr-copy-row">
+            <button type="button" class="wr-btn-ghost" id="btn-copy-code">نسخ الرقم</button>
+            <button type="button" class="wr-btn-ghost" id="btn-copy-link">نسخ الرابط</button>
+          </div>
+        </section>
+
+        <section class="wr-card wr-players-card">
+          <div class="wr-players-head">
+            <h2 class="wr-h2">اللاعبون</h2>
+            <span class="wr-count" id="lobby-player-count">0</span>
+          </div>
+          <ul class="wr-players" id="lobby-player-list"></ul>
+        </section>
       </div>
 
-      <h2 class="section-title">اللاعبون في الغرفة</h2>
-      <ul class="player-list" id="lobby-player-list"></ul>
-
-      <p class="hint-text" id="lobby-hint">بانتظار المضيف لبدء اللعبة...</p>
-      <button id="btn-start-game" class="btn btn-primary hidden">ابدأ اللعبة</button>
+      <div class="wr-actions">
+        <button type="button" class="wr-btn-back hidden" id="btn-back-settings">→ رجوع للإعدادات</button>
+        <div class="wr-start-wrap">
+          <button type="button" id="btn-start-game" class="wr-btn-start hidden">الدخول وبدء المباراة</button>
+          <span class="wr-start-hint" id="lobby-hint">بانتظار المضيف لبدء اللعبة...</span>
+        </div>
+      </div>
       <p class="error-msg" id="lobby-error"></p>
     </div>
   </section>
@@ -240,7 +233,7 @@
   <section class="screen" id="screen-clue">
     <div class="card">
       <div class="clue-header">
-        <span class="round-pill">الجولة <span id="clue-round-num">1</span> من 3</span>
+        <span class="round-pill">الجولة <span id="clue-round-num">1</span> من <span id="clue-round-total">3</span></span>
       </div>
 
       <div class="turn-indicator" id="turn-indicator">
@@ -340,6 +333,65 @@
     <button class="modal-close" id="spectator-results-close" type="button" aria-label="إغلاق">✕</button>
     <h2 id="spectator-results-title" class="modal-title">🎬 كشف الأدوار</h2>
     <ul class="spec-reveal-list" id="spec-reveal-list"></ul>
+  </div>
+</div>
+
+<!-- ===================== نافذة إعدادات الغرفة =====================
+     تُفتح عند "إنشاء غرفة" (قبل إنشائها)، ومن زر "رجوع للإعدادات" في
+     غرفة الانتظار (للمضيف فقط) لتعديل إعدادات نفس الغرفة. -->
+<div class="rs-overlay hidden" id="room-settings-modal">
+  <div class="rs-panel" role="dialog" aria-modal="true" aria-labelledby="rs-title">
+    <div class="rs-head">
+      <div class="rs-head-text">
+        <span class="rs-eyebrow" id="rs-eyebrow">غرفة جديدة</span>
+        <h2 id="rs-title" class="rs-h2">إعدادات الغرفة</h2>
+      </div>
+      <button type="button" class="rs-close" id="rs-close" aria-label="إغلاق">×</button>
+    </div>
+
+    <div class="rs-body">
+      <div class="rs-field">
+        <div class="rs-field-text">
+          <span class="rs-label" id="rs-hint-rounds-label">عدد مرات كتابة التلميح</span>
+          <span class="rs-sub">كم مرة يكتب كل لاعب تلميحًا قبل التصويت</span>
+        </div>
+        <div class="rs-seg rs-seg-2" role="radiogroup" aria-labelledby="rs-hint-rounds-label" data-setting="hintRounds">
+          <button type="button" role="radio" data-value="2">مرتين</button>
+          <button type="button" role="radio" data-value="3">3 مرات</button>
+        </div>
+      </div>
+
+      <div class="rs-field">
+        <div class="rs-field-text">
+          <span class="rs-label" id="rs-hint-time-label">وقت كتابة التلميح</span>
+          <span class="rs-sub">المدة المتاحة لكل لاعب في دوره</span>
+        </div>
+        <div class="rs-seg rs-seg-3" role="radiogroup" aria-labelledby="rs-hint-time-label" data-setting="hintTime">
+          <button type="button" role="radio" data-value="15">15 ثانية</button>
+          <button type="button" role="radio" data-value="20">20 ثانية</button>
+          <button type="button" role="radio" data-value="25">25 ثانية</button>
+        </div>
+      </div>
+
+      <div class="rs-field">
+        <div class="rs-field-text">
+          <span class="rs-label" id="rs-game-rounds-label">عدد الجولات</span>
+          <span class="rs-sub">الفائز صاحب أعلى نقاط بعد آخر جولة</span>
+        </div>
+        <div class="rs-seg rs-seg-3" role="radiogroup" aria-labelledby="rs-game-rounds-label" data-setting="gameRounds">
+          <button type="button" role="radio" data-value="3">3 جولات</button>
+          <button type="button" role="radio" data-value="5">5 جولات</button>
+          <button type="button" role="radio" data-value="7">7 جولات</button>
+        </div>
+      </div>
+
+      <div class="rs-summary" id="rs-summary">5 جولات · 3 تلميحات لكل لاعب · 15 ثانية للتلميح</div>
+    </div>
+
+    <div class="rs-foot">
+      <button type="button" class="rs-btn-ghost" id="rs-cancel">إلغاء</button>
+      <button type="button" class="rs-btn-primary" id="rs-confirm">إنشاء الغرفة</button>
+    </div>
   </div>
 </div>
 
