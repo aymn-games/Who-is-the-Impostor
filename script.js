@@ -1738,7 +1738,7 @@ function renderFinal(room, t){
   const delays = ["1s", ".55s", ".2s"];
   const podium = [1, 0, 2].filter(i => rows[i]).map(i => {
     const id = rows[i], first = i === 0 && !noWinner && !isTie;
-    const h = ["clamp(120px,18vw,170px)", "clamp(88px,13vw,120px)", "clamp(62px,9vw,86px)"][i];
+    const h = ["clamp(7.5rem,18vw,10.625rem)", "clamp(5.5rem,13vw,7.5rem)", "clamp(3.875rem,9vw,5.375rem)"][i];
     return `<div class="pod${first ? " is-first" : ""}" style="animation-delay:${delays[i]}">
       ${first ? '<svg class="pod-crown" width="40" height="32" viewBox="0 0 24 18" aria-hidden="true"><path d="M2 16h20l-1.6-11-5.2 4.6L12 1 8.8 9.6 3.6 5z" fill="#f0c048"></path></svg>' : ""}
       ${avatarHtml(room, id)}
