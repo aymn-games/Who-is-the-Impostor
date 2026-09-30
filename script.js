@@ -1,40 +1,17 @@
 /* =====================================================================
    من الأمبوستر؟  —  منطق اللعبة
    =====================================================================
-   المزامنة بين الأجهزة تعمل الآن عبر Firebase Realtime Database
-   (Modular SDK v12.15.0)، وبيانات المشروع مضبوطة بالفعل بالأسفل — لا
-   حاجة لأي إعداد إضافي على مستوى الكود.
+   المزامنة بين الأجهزة تعمل عبر Firebase Realtime Database (Modular SDK
+   v12.15.0). لا يوجد خادم خاص باللعبة: "المرجع" الوحيد هو بيانات الغرفة
+   في Firebase (rooms/{code}). كل مرحلة تُحفظ مع طوابع زمنية (مثل
+   turnEndsAt) بتوقيت خادم Firebase، وكل الأجهزة تعرض العدّادات منها.
+   عند انتهاء أي وقت، ينقل أي جهاز المرحلة التالية عبر transaction تتحقق
+   من الشرط نفسه، فلا يتكرر الانتقال ولا تتوقف اللعبة لو خرج المضيف.
 
-   يبقى شرط واحد لكي يلعب أصدقاؤك من أجهزتهم: يجب أن تُفتح الملفات
-   الثلاثة عبر رابط ويب حقيقي، وليس بفتح index.html مباشرة من جهازك
-   بصيغة file://‎ (فتح الملف محليًا يعمل فقط على متصفحك، حتى لو كانت
-   قاعدة البيانات نفسها متصلة وتعمل).
-
-   انشر المجلد بأي من هذه الطرق:
-   • اسحب مجلد المشروع كاملًا إلى https://app.netlify.com/drop
-     (لا يتطلب حسابًا) وستحصل فورًا على رابط تشاركه مع اللاعبين.
-   • أو ارفع الملفات إلى مستودع GitHub وفعّل GitHub Pages من إعدادات
-     المستودع.
-   • أو للتجربة السريعة على نفس شبكة الواي فاي: افتح Terminal داخل مجلد
-     المشروع ونفّذ: python -m http.server 8000
-     ثم شارك الرابط: http://[عنوان-IP-المحلي-لجهازك]:8000 مع من هم على
-     نفس الشبكة.
-
-   ملاحظة: بما أن Firebase يُستورد الآن كوحدة ES module (import)، يجب أن
-   يبقى وسم <script> في index.html من نوع type="module" (وهو كذلك
-   بالفعل)، والملفات يجب أن تُخدَّم عبر http(s):// حتى تعمل وحدات ES —
-   وهذا محقَّق تلقائيًا بمجرد نشر المجلد بأي من الطرق أعلاه.
+   بدون اتصال Firebase تعمل اللعبة في "وضع تجريبي محلي" على نفس المتصفح
+   (localStorage + BroadcastChannel) — مفيد للتجربة فقط.
    ===================================================================== */
 
-
-/* ---------------------------------------------------------------------
-   بيانات مشروعك على Firebase (Realtime Database) — تم ضبطها بالفعل.
-   يتم استيراد Firebase هنا كوحدة (ES module) مباشرة من gstatic، لذلك
-   لا حاجة لأي وسم <script> إضافي في index.html غير
-   <script type="module" src="script.js"></script>
-   ولا حاجة لأي وسم <script> آخر أو كود Firebase مكرر داخل index.html —
-   هذا الملف هو المصدر الوحيد لتهيئة Firebase في كامل المشروع.
---------------------------------------------------------------------- */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
 import {
   getDatabase, ref, get, set, update, onValue, runTransaction, onDisconnect
@@ -52,18 +29,15 @@ const firebaseConfig = {
 };
 
 /* ---------------------------------------------------------------------
-   0) شاشة الدخول السينمائية (تغبيش + عنوان) — تأثير بصري بحت، لا علاقة
-      له بمنطق اللعبة أو Firebase. تُعرض 3 ثوانٍ بالضبط ثم تتلاشى.
+   0) شاشة الدخول السينمائية — تأثير بصري بحت لمدة 3 ثوانٍ.
 --------------------------------------------------------------------- */
 (function runIntroSplash(){
   const introEl = document.getElementById("intro-splash");
   if(!introEl) return;
-  const INTRO_DURATION_MS = 3000;
-  const FADE_OUT_MS = 900; // يطابق مدة الانتقال في CSS
   setTimeout(() => {
     introEl.classList.add("intro-fade-out");
-    setTimeout(() => { introEl.remove(); }, FADE_OUT_MS);
-  }, INTRO_DURATION_MS);
+    setTimeout(() => { introEl.remove(); }, 900);
+  }, 3000);
 })();
 
 let db = null;
@@ -75,9 +49,6 @@ function initFirebase(){
     db = getDatabase(app);
     return true;
   } catch(err){
-    // فشل نادر (مثلًا لا يوجد اتصال إنترنت عند التحميل الأول) — نعود
-    // للوضع المحلي حتى لا تتجمد الواجهة، لكن هذا لن يحدث في الاستخدام
-    // الطبيعي بما أن بيانات المشروع أعلاه صحيحة وحقيقية.
     console.warn("تعذّر تهيئة Firebase، سيتم استخدام الوضع المحلي:", err);
     return false;
   }
@@ -85,10 +56,16 @@ function initFirebase(){
 
 usingFirebase = initFirebase();
 
-// أظهر تحذيرًا دائمًا على الشاشة الرئيسية إن لم يتم ربط Firebase بعد،
-// وافتح دليل الإعداد تلقائيًا حتى لا يفوت المضيف الخطوات المطلوبة.
-// (لا حاجة لانتظار DOMContentLoaded: هذا السكربت مُحمّل في نهاية <body>
-// بعد أن يكون كل عنصر HTML قد تم تحليله بالفعل)
+/* توقيت موحّد لكل الأجهزة: نستخدم فرق التوقيت الذي يرسله Firebase حتى
+   تتطابق العدّادات حتى لو كانت ساعة أحد الأجهزة غير مضبوطة. */
+let serverOffset = 0;
+if(usingFirebase){
+  try{
+    onValue(ref(db, ".info/serverTimeOffset"), (snap) => { serverOffset = Number(snap.val()) || 0; });
+  } catch(e){ /* نكتفي بساعة الجهاز */ }
+}
+const now = () => Date.now() + serverOffset;
+
 (function showSetupBannerIfNeeded(){
   const banner = document.getElementById("setup-banner");
   const guide = document.getElementById("setup-guide");
@@ -274,55 +251,7 @@ const Backend = {
 };
 
 /* ---------------------------------------------------------------------
-   2) بنك الكلمات: كل فئة (domain) مقسّمة إلى مجموعات (clusters) تُستخدم
-      فقط لاختيار كلمة الأبرياء (حتى تبقى كل كلماتهم ضمن نفس الفئة
-      متقاربة الطابع). أما كلمة الأمبوستر فلم تعد تُسحب من نفس الفئة
-      إطلاقًا: يتم اختيار فئة أخرى مختلفة تمامًا بشكل عشوائي، بحيث تكون
-      كلمة الأمبوستر من عالم/مجال مختلف جذريًا (مثال: لو حصل الأبرياء
-      على "شاورما" من فئة "وجبات سريعة"، فقد يحصل الأمبوستر على "طائرة"
-      من فئة "مواصلات" أو "مستشفى" من فئة "أماكن") — بلا أي تداخل بين
-      الفئتين إطلاقًا.
---------------------------------------------------------------------- */
-const WORD_BANK = {
-  "فواكه": [["تفاح","كمثرى"],["برتقال","يوسفي","ليمون"],["موز","عنب"],["فراولة","توت"],["بطيخ","شمام"]],
-  "حيوانات": [["قطة","كلب"],["أسد","نمر"],["حصان","حمار"],["دجاجة","بطة"],["ذئب","ثعلب"]],
-  "مهن": [["طبيب","ممرض"],["معلم","مدير مدرسة"],["شرطي","جندي"],["طباخ","نادل"],["مهندس","فني"]],
-  "أماكن": [["مدرسة","جامعة"],["مستشفى","صيدلية"],["مطعم","مقهى"],["شاطئ","مسبح"],["حديقة","غابة"]],
-  "رياضة": [["كرة قدم","كرة سلة"],["سباحة","غطس"],["تنس","بادمنتون"],["جري","مشي"],["ملاكمة","مصارعة"]],
-  "أدوات منزلية": [["ملعقة","شوكة"],["ثلاجة","فرن"],["مكنسة","ممسحة"],["وسادة","بطانية"],["مرآة","ساعة حائط"]],
-  "مواصلات": [["سيارة","دراجة"],["طائرة","قطار"],["حافلة","تاكسي"],["سفينة","قارب"],["مترو","ترام"]],
-  "طبيعة": [["شمس","قمر"],["مطر","ثلج"],["بحر","نهر"],["جبل","تلة"],["صحراء","واحة"]],
-  "مشروبات": [["شاي","قهوة"],["عصير","ماء"],["كولا","سبرايت"],["حليب","لبن"],["عصير برتقال","عصير تفاح"]],
-  "أدوات مدرسية": [["كتاب","دفتر"],["قلم","ممحاة"],["سبورة","طاولة"],["معلم","طالب"],["اختبار","واجب"]],
-  "وجبات سريعة": [["بيتزا","برجر"],["شاورما","فلافل"],["بطاطا مقلية","حلقات بصل"],["ناجتس","سمبوسة"]],
-  "حبوب ونشويات": [["أرز","معكرونة"],["خبز","توست"],["فريكة","برغل"]]
-};
-
-/** يختار فئة عشوائية للأبرياء، ثم مجموعة (cluster) داخلها، ثم كلمة
- *  واحدة منها لهم جميعًا. بعدها يختار فئة أخرى مختلفة تمامًا (مستبعدًا
- *  فئة الأبرياء بالكامل) ويسحب منها كلمة الأمبوستر — ما يضمن اختلافًا
- *  جذريًا وكاملًا بين الكلمتين، دون أي انتماء لنفس الفئة أو المجال. */
-function pickCategoryAndWords(){
-  const categories = Object.keys(WORD_BANK);
-
-  // فئة وكلمة الأبرياء
-  const category = categories[Math.floor(Math.random() * categories.length)];
-  const clusters = WORD_BANK[category];
-  const cluster = clusters[Math.floor(Math.random() * clusters.length)];
-  const innocentWord = pickRandom(cluster, 1)[0];
-
-  // فئة الأمبوستر: أي فئة أخرى غير فئة الأبرياء إطلاقًا (اختلاف جذري)
-  const otherCategories = categories.filter(c => c !== category);
-  const impostorCategory = otherCategories[Math.floor(Math.random() * otherCategories.length)];
-  const impostorClusters = WORD_BANK[impostorCategory];
-  const impostorCluster = impostorClusters[Math.floor(Math.random() * impostorClusters.length)];
-  const impostorWord = pickRandom(impostorCluster, 1)[0];
-
-  return { category, innocentWord, impostorWord, impostorCategory };
-}
-
-/* ---------------------------------------------------------------------
-   3) حالة محلية للجلسة الحالية (متصفح/تبويب واحد = لاعب واحد)
+   2) حالة الجلسة الحالية (متصفح/تبويب واحد = لاعب واحد)
 --------------------------------------------------------------------- */
 const state = {
   roomCode: sessionStorage.getItem("imp_roomCode") || null,
@@ -349,15 +278,13 @@ function ensurePlayerId(){
 }
 
 /* ---------------------------------------------------------------------
-   4) أدوات مساعدة عامة
+   3) أدوات مساعدة عامة
 --------------------------------------------------------------------- */
 const $ = (sel) => document.querySelector(sel);
 const $all = (sel) => Array.from(document.querySelectorAll(sel));
 
 function showScreen(id){
-  $all(".screen").forEach(s => s.classList.remove("active"));
-  const el = document.getElementById(id);
-  if(el) el.classList.add("active");
+  $all(".screen").forEach(s => s.classList.toggle("active", s.id === id));
 }
 
 function toast(msg, ms = 2600){
@@ -368,13 +295,18 @@ function toast(msg, ms = 2600){
   toast._t = setTimeout(() => t.classList.remove("show"), ms);
 }
 
+function escapeHtml(str){
+  return String(str == null ? "" : str)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#039;");
+}
+
 /** يولّد رمز غرفة عشوائيًا من 5 أرقام، مثل 57392 */
 function randomRoomCode(){
   return String(Math.floor(10000 + Math.random() * 90000));
 }
 
-/* إعدادات الغرفة (تُحفظ في room.settings): عدد مرات كتابة التلميح،
-   وقت كتابة التلميح بالثواني، وعدد جولات المباراة. */
+/* إعدادات الغرفة (تُحفظ في room.settings) */
 const DEFAULT_SETTINGS = { hintRounds: 3, hintTime: 15, gameRounds: 5 };
 
 function getRoomSettings(room){
@@ -394,44 +326,188 @@ function shuffleArray(arr){
   return a;
 }
 
-function pickRandom(arr, n){
-  return shuffleArray(arr).slice(0, n);
-}
+function pickOne(arr){ return arr[Math.floor(Math.random() * arr.length)]; }
 
 function initialsOf(name){
   return (name || "؟").trim().slice(0,1).toUpperCase();
 }
 
-/* ---------------------------------------------------------------------
-   4.ب) زر ونافذة "قوانين اللعبة" — طبقة عرض بحتة، لا تلمس حالة اللعبة
-   ولا توقفها؛ يمكن فتحها/إغلاقها في أي وقت من أي شاشة.
---------------------------------------------------------------------- */
-/* ---------------------------------------------------------------------
-   4.ب) أزرار ونوافذ "قوانين اللعبة" + "تعليمات اللعبة" — طبقة عرض بحتة،
-   لا تلمس حالة اللعبة ولا توقفها؛ يمكن فتحها/إغلاقها في أي وقت من أي
-   شاشة (بما في ذلك أثناء الجولة الحيّة).
---------------------------------------------------------------------- */
-function setupHelpModal(openBtnSel, modalSel, closeBtnSel){
-  const openBtn = $(openBtnSel);
-  const modal = $(modalSel);
-  const closeBtn = $(closeBtnSel);
-  if(!openBtn || !modal || !closeBtn) return;
-
-  const open = () => modal.classList.remove("hidden");
-  const close = () => modal.classList.add("hidden");
-
-  openBtn.addEventListener("click", open);
-  closeBtn.addEventListener("click", close);
-  modal.addEventListener("click", (e) => { if(e.target === modal) close(); });
-  document.addEventListener("keydown", (e) => {
-    if(e.key === "Escape" && !modal.classList.contains("hidden")) close();
-  });
+/** توحيد النص العربي للمقارنة: حذف التشكيل والتطويل، أإآ→ا، ة→ه، ى→ي،
+ *  وحذف "ال" في البداية. */
+function normalizeArabic(t){
+  return String(t || "").trim()
+    .replace(/[ً-ْـ]/g, "")
+    .replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي")
+    .replace(/^ال/, "").replace(/\s+/g, " ");
 }
-setupHelpModal("#btn-rules", "#rules-modal", "#rules-close");
+
+/** النقاط قد تكون أنصافًا: نعرض رقمًا عشريًا واحدًا فقط عند الحاجة */
+function fmtPts(n){
+  n = Number(n) || 0;
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+const AVATAR_COLORS = ["#7c5cff", "#2dd4bf", "#f0c048", "#e879c9", "#5b8cff", "#f97373"];
+
+function playerColor(room, id){
+  const p = (room && room.players && room.players[id]) || {};
+  if(Number.isInteger(p.colorIdx)) return AVATAR_COLORS[p.colorIdx % AVATAR_COLORS.length];
+  let h = 0;
+  for(const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+function playerName(room, id){
+  const p = room && room.players && room.players[id];
+  if(p) return p.name;
+  const g = room && room.g;
+  return (g && g.names && g.names[id]) || "؟";
+}
+
+/** اسم اللاعب كما يظهر في المباراة: "(أنت)" بجانب اسم المستخدم الحالي */
+function playerLabel(room, id){
+  const n = playerName(room, id);
+  return id === state.playerId ? `${n} (أنت)` : n;
+}
+
+function avatarHtml(room, id, cls = ""){
+  return `<div class="avatar ${cls}" style="background:${playerColor(room, id)}">${escapeHtml(initialsOf(playerName(room, id)))}</div>`;
+}
+
+/** لاعبو الغرفة مرتّبون حسب وقت الانضمام */
+function sortedPlayerIds(room){
+  const players = (room && room.players) || {};
+  return Object.keys(players).sort((a, b) => (players[a].joinedAt || 0) - (players[b].joinedAt || 0));
+}
 
 /* ---------------------------------------------------------------------
-   4.ج) تعبئة رمز الغرفة تلقائيًا عند فتح رابط QR (?room=CODE) — كل حقول
-   الشاشة الرئيسية ظاهرة معًا الآن، فيكفي تعبئة حقل رمز الغرفة مباشرة.
+   4) الأصوات — مولَّدة بالكامل عبر Web Audio API (بدون ملفات صوتية)،
+   نفس sfx() في ملف التصميم. يُفعَّل الصوت عند أول لمسة/نقرة (سياسة
+   المتصفحات)، وخيار الكتم محفوظ على الجهاز.
+--------------------------------------------------------------------- */
+const Sound = {
+  ac: null,
+  muted: (() => { try{ return localStorage.getItem("imp_muted") === "1"; } catch(e){ return false; } })(),
+  audio(){
+    if(!this.ac){
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if(!AC) return null;
+      this.ac = new AC();
+    }
+    if(this.ac.state === "suspended") this.ac.resume();
+    return this.ac;
+  },
+  setMuted(v){
+    this.muted = v;
+    try{ localStorage.setItem("imp_muted", v ? "1" : "0"); } catch(e){}
+  },
+  tone(freq, dur, o = {}){
+    if(this.muted) return;
+    const ac = this.audio(); if(!ac) return;
+    const t = ac.currentTime + (o.delay || 0), osc = ac.createOscillator(), g = ac.createGain();
+    osc.type = o.type || "sine"; osc.frequency.setValueAtTime(freq, t);
+    if(o.slide) osc.frequency.exponentialRampToValueAtTime(o.slide, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(o.vol || .12, t + .015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g).connect(ac.destination); osc.start(t); osc.stop(t + dur + .05);
+  },
+  noise(dur, o = {}){
+    if(this.muted) return;
+    const ac = this.audio(); if(!ac) return;
+    const t = ac.currentTime + (o.delay || 0), len = Math.floor(ac.sampleRate * dur), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+    for(let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = buf; f.type = "bandpass"; f.Q.value = 1.2;
+    f.frequency.setValueAtTime(o.from || 400, t); f.frequency.exponentialRampToValueAtTime(o.to || 3000, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(o.vol || .15, t + dur * .35); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f).connect(g).connect(ac.destination); src.start(t); src.stop(t + dur);
+  },
+  sfx(n){
+    if(this.muted) return;
+    const T = (f, d, o) => this.tone(f, d, o);
+    const fx = {
+      whoosh: () => this.noise(.8, { from: 250, to: 3200, vol: .2 }),
+      tick: () => { T(660, .12, { type: "triangle", vol: .14 }); T(1320, .06, { type: "sine", vol: .05 }); },
+      go: () => [523, 659, 784, 1047].forEach((f, i) => T(f, .6, { type: "triangle", vol: .12, delay: i * .07 })),
+      flip: () => this.noise(.35, { from: 2400, to: 500, vol: .16 }),
+      citizen: () => [659, 831, 988, 1319].forEach((f, i) => T(f, 1, { vol: .1, delay: i * .11 })),
+      impostor: () => { T(98, 1.6, { type: "sawtooth", vol: .07, slide: 73 }); T(233, 1.3, { type: "triangle", vol: .08, delay: .12, slide: 196 }); T(147, 1.3, { type: "sine", vol: .1, delay: .12 }); },
+      turn: () => { T(784, .18, { type: "triangle", vol: .1 }); T(1047, .32, { type: "triangle", vol: .1, delay: .12 }); },
+      myTurn: () => [784, 988, 1319].forEach((f, i) => T(f, .35, { type: "triangle", vol: .14, delay: i * .1 })),
+      warn: () => T(1250, .07, { type: "square", vol: .035 }),
+      send: () => T(520, .18, { vol: .16, slide: 1400 }),
+      skip: () => T(320, .4, { type: "sawtooth", vol: .06, slide: 140 }),
+      final: () => { [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => T(f, .7, { type: "triangle", vol: .12, delay: i * .09 })); [523, 659, 784].forEach(f => T(f, 1.8, { vol: .07, delay: .6 })); },
+      vote: () => T(700, .08, { type: "triangle", vol: .08 }),
+      drum: () => { this.noise(.07, { from: 120, to: 300, vol: .35 }); T(80, .08, { vol: .12 }); },
+      caught: () => [523, 659, 784, 1047, 1319].forEach((f, i) => T(f, .5, { type: "triangle", vol: .13, delay: i * .08 })),
+      escaped: () => { T(110, 1.6, { type: "sawtooth", vol: .07, slide: 65 }); T(165, 1.4, { vol: .1, delay: .1 }); this.noise(1.2, { from: 3000, to: 200, vol: .08 }); },
+      impWin: () => { T(147, 1.2, { type: "sawtooth", vol: .07, slide: 294 }); [587, 740, 880].forEach((f, i) => T(f, .6, { type: "triangle", vol: .1, delay: .3 + i * .1 })); },
+      citWin: () => [659, 784, 988, 1319].forEach((f, i) => T(f, .5, { type: "triangle", vol: .12, delay: i * .09 })),
+      end: () => [523, 659, 784, 1047, 784, 1047].forEach((f, i) => T(f, .45, { type: "triangle", vol: .12, delay: i * .12 }))
+    };
+    try{ fx[n] && fx[n](); } catch(e){ /* الصوت ليس ضروريًا للعب */ }
+  }
+};
+
+// فتح سياق الصوت عند أول تفاعل من المستخدم
+["pointerdown", "keydown"].forEach(ev => window.addEventListener(ev, () => { if(!Sound.muted) Sound.audio(); }, { once: true, passive: true }));
+
+/* ---------------------------------------------------------------------
+   5) النوافذ المنبثقة: حبس التركيز داخل النافذة، Esc يغلقها، الضغط
+   خارجها يغلقها، ويعود التركيز للزر الذي فتحها.
+--------------------------------------------------------------------- */
+const Modal = {
+  stack: [],
+  open(el, trigger){
+    if(!el || !el.classList.contains("hidden")) return;
+    el.classList.remove("hidden");
+    this.stack.push({ el, trigger: trigger || document.activeElement });
+    document.body.classList.add("modal-open");
+    const first = el.querySelector("[data-autofocus]") || this.focusables(el)[0];
+    if(first) first.focus();
+  },
+  close(el){
+    const i = this.stack.findIndex(m => m.el === el);
+    if(i === -1) return;
+    const [{ trigger }] = this.stack.splice(i, 1);
+    el.classList.add("hidden");
+    if(!this.stack.length) document.body.classList.remove("modal-open");
+    if(trigger && document.contains(trigger) && typeof trigger.focus === "function") trigger.focus();
+  },
+  top(){ return this.stack.length ? this.stack[this.stack.length - 1].el : null; },
+  focusables(el){
+    return Array.from(el.querySelectorAll("button, [href], input, [tabindex]:not([tabindex='-1'])"))
+      .filter(x => !x.disabled && x.offsetParent !== null);
+  }
+};
+
+document.addEventListener("keydown", (e) => {
+  const top = Modal.top();
+  if(!top) return;
+  if(e.key === "Escape"){ e.preventDefault(); Modal.close(top); return; }
+  if(e.key === "Tab"){
+    const f = Modal.focusables(top);
+    if(!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+    else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+    else if(!top.contains(document.activeElement)){ e.preventDefault(); first.focus(); }
+  }
+});
+
+function setupModal(modalSel){
+  const el = $(modalSel);
+  el.addEventListener("click", (e) => {
+    if(e.target === el || e.target.closest("[data-close]")) Modal.close(el);
+  });
+  return el;
+}
+
+const rulesModal = setupModal("#rules-modal");
+$("#btn-rules").addEventListener("click", (e) => Modal.open(rulesModal, e.currentTarget));
+
+/* ---------------------------------------------------------------------
+   6) الشاشة الرئيسية: إنشاء / انضمام / شارك كلاعب / شاشة عرض للبث
 --------------------------------------------------------------------- */
 (function prefillJoinFromURL(){
   const roomParam = new URLSearchParams(location.search).get("room");
@@ -440,8 +516,6 @@ setupHelpModal("#btn-rules", "#rules-modal", "#rules-close");
   if(joinCodeInput) joinCodeInput.value = roomParam.replace(/\D/g, "").slice(0, 5);
 })();
 
-/* حقل رمز الغرفة: أرقام فقط وبحد أقصى 5، ونص المساعدة تحت "شارك كلاعب"
-   يتغيّر حسب وجود رمز. */
 function updateShareHint(){
   const code = $("#join-code").value;
   $("#share-hint").textContent = code
@@ -455,13 +529,9 @@ $("#join-code").addEventListener("input", (e) => {
 });
 updateShareHint();
 
-/* ---------------------------------------------------------------------
-   5) الشاشة الرئيسية: كل أزرار الدخول ظاهرة معًا بلا تبويبات —
-   إنشاء غرفة / الانضمام لغرفة / شارك كلاعب (اختصار) / شاشة عرض للبث
---------------------------------------------------------------------- */
 function requireHomeName(){
   const name = $("#home-name").value.trim();
-  if(!name){ $("#home-error").textContent = "الرجاء إدخال اسمك"; return null; }
+  if(!name){ $("#home-error").textContent = "الرجاء إدخال اسمك"; $("#home-name").focus(); return null; }
   return name;
 }
 
@@ -471,10 +541,7 @@ function readJoinCode(){
 
 /** إنشاء غرفة جديدة والانضمام إليها كلاعب فعلي (مضيف). */
 async function createRoomAsPlayer(name, settings = DEFAULT_SETTINGS){
-  // يولّد رمزًا من 5 أرقام ويتأكد أنه غير مستخدم حاليًا (لن يتجمد أبدًا:
-  // في الوضع المحلي القراءة فورية، وفي وضع Firebase هي قراءة واحدة سريعة)
-  let code, existing;
-  let attempts = 0;
+  let code, existing, attempts = 0;
   do{
     code = randomRoomCode();
     existing = await Backend.getRoom(code);
@@ -491,11 +558,10 @@ async function createRoomAsPlayer(name, settings = DEFAULT_SETTINGS){
   await Backend.createRoom(code, {
     hostId: state.playerId,
     status: "lobby",
-    createdAt: Date.now(),
-    gameVersion: 0,
+    createdAt: now(),
     settings: Object.assign({}, DEFAULT_SETTINGS, settings),
     players: {
-      [state.playerId]: { name, score: 0, connected: true, joinedAt: Date.now() }
+      [state.playerId]: { name, connected: true, joinedAt: now(), colorIdx: 0 }
     }
   });
 
@@ -512,20 +578,28 @@ async function joinRoomAsPlayer(name, code){
       : "لا توجد غرفة بهذا الرمز على هذا الجهاز. في الوضع التجريبي المحلي (بدون Firebase)، يجب فتح الغرفة من نفس المتصفح الذي أنشأها المضيف. راجع دليل الإعداد أعلى الصفحة لتفعيل اللعب بين أجهزة مختلفة.";
     return false;
   }
-  if(room.status !== "lobby"){
+  ensurePlayerId();
+  if(room.kicked && room.kicked[state.playerId]){
+    $("#home-error").textContent = "تمت إزالتك من هذه الغرفة";
+    return false;
+  }
+  const alreadyIn = !!(room.players && room.players[state.playerId]);
+  if(room.status !== "lobby" && !alreadyIn){
     $("#home-error").textContent = "اللعبة بدأت بالفعل في هذه الغرفة";
     return false;
   }
 
-  ensurePlayerId();
   state.playerName = name;
   state.roomCode = code;
   state.isHost = (room.hostId === state.playerId);
   state.isSpectator = false;
   persistSession();
 
+  const existing = (room.players && room.players[state.playerId]) || {};
   await Backend.setPlayer(code, state.playerId, {
-    name, score: 0, connected: true, joinedAt: Date.now()
+    name, connected: true,
+    joinedAt: existing.joinedAt || now(),
+    colorIdx: Number.isInteger(existing.colorIdx) ? existing.colorIdx : Object.keys(room.players || {}).length
   });
 
   Backend.setupPresence(code, state.playerId);
@@ -533,8 +607,7 @@ async function joinRoomAsPlayer(name, code){
   return true;
 }
 
-/** الدخول إلى غرفة قائمة كمشاهد فقط ("شاشة عرض للبث") — لا يشارك في
- *  اللعب أو التصويت، ويُحوَّل مباشرة إلى لوحة تحكم المشاهد. */
+/** الدخول إلى غرفة قائمة كمشاهد فقط ("شاشة عرض للبث"). */
 async function joinRoomAsSpectator(name, code){
   const room = await Backend.getRoom(code);
   if(!room){
@@ -551,17 +624,21 @@ async function joinRoomAsSpectator(name, code){
   state.isSpectator = true;
   persistSession();
 
-  await Backend.setSpectator(code, state.playerId, {
-    name, connected: true, joinedAt: Date.now()
-  });
-
+  await Backend.setSpectator(code, state.playerId, { name, connected: true, joinedAt: now() });
   Backend.setupSpectatorPresence(code, state.playerId);
   attachRoomListener();
   return true;
 }
 
-/** "إنشاء غرفة" يفتح نافذة إعدادات الغرفة أولًا، ثم تُنشأ الغرفة عند
- *  الضغط على "إنشاء الغرفة" داخل النافذة. */
+async function withBusy(btn, fn, errMsg){
+  btn.disabled = true;
+  $("#home-error").textContent = "";
+  try{ await fn(); }
+  catch(err){ console.error(err); $("#home-error").textContent = errMsg; }
+  finally{ btn.disabled = false; }
+}
+
+/** "إنشاء غرفة" يفتح نافذة إعدادات الغرفة أولًا */
 $("#btn-create-room").addEventListener("click", () => {
   const name = requireHomeName();
   if(!name) return;
@@ -569,12 +646,43 @@ $("#btn-create-room").addEventListener("click", () => {
   openRoomSettings("create", DEFAULT_SETTINGS, $("#btn-create-room"));
 });
 
+$("#btn-join-room").addEventListener("click", () => {
+  const name = requireHomeName();
+  if(!name) return;
+  const code = readJoinCode();
+  if(code.length !== 5){ $("#home-error").textContent = "الرجاء إدخال رمز الغرفة المكوّن من 5 أرقام"; $("#join-code").focus(); return; }
+  withBusy($("#btn-join-room"), () => joinRoomAsPlayer(name, code), "تعذّر الانضمام إلى الغرفة");
+});
+
+/** "شارك كلاعب": يُنشئ غرفة إن كان الرمز فارغًا، أو ينضم مباشرة إن كُتب رمز */
+$("#btn-share-player").addEventListener("click", () => {
+  const name = requireHomeName();
+  if(!name) return;
+  const code = readJoinCode();
+  withBusy($("#btn-share-player"), () => code ? joinRoomAsPlayer(name, code) : createRoomAsPlayer(name), "حدث خطأ غير متوقع. حاول مرة أخرى.");
+});
+
+$("#btn-broadcast-view").addEventListener("click", () => {
+  const name = requireHomeName();
+  if(!name) return;
+  const code = readJoinCode();
+  if(!code){ $("#home-error").textContent = "الرجاء إدخال رمز الغرفة للمشاهدة"; $("#join-code").focus(); return; }
+  withBusy($("#btn-broadcast-view"), () => joinRoomAsSpectator(name, code), "تعذّر الدخول كمشاهد");
+});
+
 /* ---------------------------------------------------------------------
-   5.ب) نافذة إعدادات الغرفة — وضعان:
-   "create": قبل إنشاء غرفة جديدة (من الشاشة الرئيسية).
-   "edit":   المضيف يعدّل إعدادات نفس الغرفة من غرفة الانتظار.
+   7) نافذة إعدادات الغرفة — "create" قبل إنشاء غرفة، و"edit" للمضيف
+   لتعديل إعدادات نفس الغرفة من غرفة الانتظار.
 --------------------------------------------------------------------- */
-const roomSettingsUI = { mode: "create", values: { ...DEFAULT_SETTINGS }, returnFocus: null };
+const roomSettingsUI = { mode: "create", values: { ...DEFAULT_SETTINGS } };
+const settingsModal = setupModal("#room-settings-modal");
+
+function wordBankStats(){
+  const W = window.AYMN_WORDS && window.AYMN_WORDS.categories;
+  if(!W) return { words: 0, cats: 0 };
+  const keys = Object.keys(W);
+  return { words: keys.reduce((n, k) => n + W[k].words.length, 0), cats: keys.length };
+}
 
 function renderRoomSettingsUI(){
   const v = roomSettingsUI.values;
@@ -588,30 +696,25 @@ function renderRoomSettingsUI(){
   });
   $("#rs-summary").textContent =
     `${v.gameRounds} جولات · ${hintsLabel(v.hintRounds)} لكل لاعب · ${v.hintTime} ثانية للتلميح`;
+  const bank = wordBankStats();
+  $("#rs-bank").textContent = bank.words
+    ? `بنك الكلمات: ${bank.words} كلمة في ${bank.cats} فئة · كلمات جديدة وأمبوستر مختلف كل جولة`
+    : "";
 }
 
-function openRoomSettings(mode, values, returnFocus){
+function openRoomSettings(mode, values, trigger){
   roomSettingsUI.mode = mode;
   roomSettingsUI.values = { ...DEFAULT_SETTINGS, ...values };
-  roomSettingsUI.returnFocus = returnFocus || null;
   $("#rs-eyebrow").textContent = mode === "edit" ? "غرفة الانتظار" : "غرفة جديدة";
   $("#rs-confirm").textContent = mode === "edit" ? "حفظ الإعدادات" : "إنشاء الغرفة";
   $("#rs-confirm").disabled = false;
   renderRoomSettingsUI();
-  $("#room-settings-modal").classList.remove("hidden");
+  Modal.open(settingsModal, trigger);
   const first = $("#room-settings-modal .rs-seg button[aria-checked=true]");
   if(first) first.focus();
 }
 
-function closeRoomSettings(){
-  const modal = $("#room-settings-modal");
-  if(modal.classList.contains("hidden")) return;
-  modal.classList.add("hidden");
-  if(roomSettingsUI.returnFocus) roomSettingsUI.returnFocus.focus();
-}
-
 (function setupRoomSettingsModal(){
-  const modal = $("#room-settings-modal");
   $all("#room-settings-modal .rs-seg").forEach(group => {
     const key = group.dataset.setting;
     const buttons = Array.from(group.querySelectorAll("button[role=radio]"));
@@ -620,7 +723,7 @@ function closeRoomSettings(){
         roomSettingsUI.values[key] = Number(btn.dataset.value);
         renderRoomSettingsUI();
       });
-      // الأسهم تنقل الاختيار داخل المجموعة (الاتجاه RTL: السهم الأيسر = التالي)
+      // الأسهم تنقل الاختيار داخل المجموعة (RTL: السهم الأيسر = التالي)
       btn.addEventListener("keydown", (e) => {
         let next = null;
         if(e.key === "ArrowLeft" || e.key === "ArrowDown") next = buttons[(i + 1) % buttons.length];
@@ -634,12 +737,8 @@ function closeRoomSettings(){
     });
   });
 
-  $("#rs-close").addEventListener("click", closeRoomSettings);
-  $("#rs-cancel").addEventListener("click", closeRoomSettings);
-  modal.addEventListener("click", (e) => { if(e.target === modal) closeRoomSettings(); });
-  document.addEventListener("keydown", (e) => {
-    if(e.key === "Escape") closeRoomSettings();
-  });
+  $("#rs-close").addEventListener("click", () => Modal.close(settingsModal));
+  $("#rs-cancel").addEventListener("click", () => Modal.close(settingsModal));
 
   $("#rs-confirm").addEventListener("click", async () => {
     const btn = $("#rs-confirm");
@@ -647,107 +746,41 @@ function closeRoomSettings(){
     btn.disabled = true;
     try{
       if(roomSettingsUI.mode === "edit"){
-        // تحديث إعدادات نفس الغرفة — لا تُنشأ غرفة جديدة
         if(state.roomCode) await Backend.updateRoom(state.roomCode, { settings });
-        roomSettingsUI.returnFocus = $("#btn-back-settings");
-        closeRoomSettings();
+        Modal.close(settingsModal);
       } else {
         const name = requireHomeName();
-        if(!name){ closeRoomSettings(); return; }
-        roomSettingsUI.returnFocus = null;
-        closeRoomSettings();
+        Modal.close(settingsModal);
+        if(!name) return;
         $("#home-error").textContent = "";
         await createRoomAsPlayer(name, settings);
       }
     } catch(err){
       console.error(err);
-      closeRoomSettings();
-      if(roomSettingsUI.mode === "edit"){
-        $("#lobby-error").textContent = "تعذّر حفظ الإعدادات. حاول مرة أخرى.";
-      } else {
-        $("#home-error").textContent = "حدث خطأ غير متوقع أثناء إنشاء الغرفة. حاول مرة أخرى.";
-      }
+      Modal.close(settingsModal);
+      if(roomSettingsUI.mode === "edit") $("#lobby-error").textContent = "تعذّر حفظ الإعدادات. حاول مرة أخرى.";
+      else $("#home-error").textContent = "حدث خطأ غير متوقع أثناء إنشاء الغرفة. حاول مرة أخرى.";
     } finally {
       btn.disabled = false;
     }
   });
 })();
 
-$("#btn-join-room").addEventListener("click", async () => {
-  const name = requireHomeName();
-  const code = readJoinCode();
-  if(!name) return;
-  if(!code){ $("#home-error").textContent = "الرجاء إدخال رمز الغرفة"; return; }
-  const btn = $("#btn-join-room");
-  btn.disabled = true;
-  $("#home-error").textContent = "";
-  try{
-    await joinRoomAsPlayer(name, code);
-  } catch(err){
-    console.error(err);
-    $("#home-error").textContent = "تعذّر الانضمام إلى الغرفة";
-  } finally {
-    btn.disabled = false;
-  }
-});
-
-/** زر "شارك كلاعب": اختصار سريع يُنشئ غرفة جديدة إن كان حقل رمز الغرفة
- *  فارغًا، أو ينضم مباشرة كلاعب فعلي إن كان الحقل معبَّأ برمز غرفة قائمة. */
-$("#btn-share-player").addEventListener("click", async () => {
-  const name = requireHomeName();
-  if(!name) return;
-  const code = readJoinCode();
-  const btn = $("#btn-share-player");
-  btn.disabled = true;
-  $("#home-error").textContent = "";
-  try{
-    if(code){
-      await joinRoomAsPlayer(name, code);
-    } else {
-      await createRoomAsPlayer(name);
-    }
-  } catch(err){
-    console.error(err);
-    $("#home-error").textContent = "حدث خطأ غير متوقع. حاول مرة أخرى.";
-  } finally {
-    btn.disabled = false;
-  }
-});
-
-/** زر "شاشة عرض للبث": يتطلب رمز غرفة قائمة في نفس الحقل أعلاه، وينقل
- *  المستخدم إلى وضع المشاهدة فقط دون المشاركة في اللعب أو التصويت. */
-$("#btn-broadcast-view").addEventListener("click", async () => {
-  const name = requireHomeName();
-  const code = readJoinCode();
-  if(!name) return;
-  if(!code){ $("#home-error").textContent = "الرجاء إدخال رمز الغرفة للمشاهدة"; return; }
-  const btn = $("#btn-broadcast-view");
-  btn.disabled = true;
-  $("#home-error").textContent = "";
-  try{
-    await joinRoomAsSpectator(name, code);
-  } catch(err){
-    console.error(err);
-    $("#home-error").textContent = "تعذّر الدخول كمشاهد";
-  } finally {
-    btn.disabled = false;
-  }
-});
-
 /* ---------------------------------------------------------------------
-   6) الاستماع لحالة الغرفة (مصدر الحقيقة الوحيد لكل الشاشات)
+   8) الاستماع لحالة الغرفة (مصدر الحقيقة الوحيد لكل الشاشات)
 --------------------------------------------------------------------- */
 function attachRoomListener(){
   if(state.unsubscribe) state.unsubscribe();
 
   if(!usingFirebase){
-    toast("🔌 وضع تجريبي محلي — اللعبة تعمل الآن على هذا المتصفح بدون خادم خارجي", 4200);
+    toast("وضع تجريبي محلي — اللعبة تعمل الآن على هذا المتصفح بدون خادم خارجي", 4200);
   }
 
   state.unsubscribe = Backend.subscribe(state.roomCode, (room) => {
+    if(!state.roomCode) return;
     if(!room){
-      toast("تم إغلاق الغرفة");
       resetToHome();
+      toast("تم إغلاق الغرفة");
       return;
     }
     state.roomData = room;
@@ -757,154 +790,59 @@ function attachRoomListener(){
 }
 
 function resetToHome(){
-  sessionStorage.clear();
+  sessionStorage.removeItem("imp_roomCode");
+  sessionStorage.removeItem("imp_isSpectator");
   if(state.unsubscribe) state.unsubscribe();
-  stopTurnTimer();
-  hidePersistentHint();
+  Object.assign(state, { roomCode: null, isHost: false, isSpectator: false, unsubscribe: null, roomData: null });
+  hideGameLayers();
   closeSpectatorResultsModal();
-  Object.assign(state, {
-    roomCode:null, playerId:null, playerName:null, isHost:false, isSpectator:false,
-    unsubscribe:null, roomData:null
-  });
-  lobbyLastPlayerCount = 0;
-  closeRoomSettings();
+  [settingsModal, exitModal].forEach(m => Modal.close(m));
+  lobbyUI.lastCount = 0;
+  lobbyUI.kickAsk = null;
   showScreen("screen-home");
-  const nameInput = $("#home-name");
-  const codeInput = $("#join-code");
-  if(nameInput) nameInput.value = "";
-  if(codeInput) codeInput.value = "";
+  $("#join-code").value = "";
   updateShareHint();
   $("#home-error").textContent = "";
-  renderLeaderboard(null);
   updateRoomChip();
 }
 
-/* ---------------------------------------------------------------------
-   7) توزيع الشاشات حسب حالة الغرفة (status)
---------------------------------------------------------------------- */
+function updateRoomChip(){
+  const chip = $("#global-room-chip");
+  chip.classList.toggle("hidden", !state.roomCode);
+  $("#global-room-chip-value").textContent = state.roomCode || "-----";
+}
+
+/** توزيع الشاشات حسب حالة الغرفة */
 function renderRoom(room){
-  renderLeaderboard(room);
   updateRoomChip();
 
   if(state.isSpectator){
+    hideGameLayers();
     renderSpectatorFlow(room);
     return;
   }
 
-  switch(room.status){
-    case "lobby":
-      stopTurnTimer();
-      hidePersistentHint();
-      renderLobby(room);
-      break;
-    case "clue": {
-      const version = room.gameVersion || 0;
-      const seenKey = `imp_wordSeen_${state.roomCode}_${version}`;
-      if(!sessionStorage.getItem(seenKey)){
-        stopTurnTimer();
-        renderWordScreen(room, seenKey);
-      } else {
-        updatePersistentHint(room);
-        renderClueScreen(room);
-      }
-      break;
-    }
-    case "voting":
-      stopTurnTimer();
-      updatePersistentHint(room);
-      renderVotingScreen(room);
-      break;
-    case "results":
-      stopTurnTimer();
-      hidePersistentHint();
-      renderResultsScreen(room);
-      break;
-    default:
-      stopTurnTimer();
-      hidePersistentHint();
-      renderLobby(room);
-  }
-}
-
-/* ---------------------------------------------------------------------
-   7.ب) لوحة المتصدرين الحيّة (عنصر ثابت خارج شاشات .screen، يبقى ظاهرًا
-   عبر كل الشاشات طالما اللاعب داخل غرفة) + شارة رمز الغرفة الدائمة
---------------------------------------------------------------------- */
-function renderLeaderboard(room){
-  const panel = $("#leaderboard-panel");
-  if(!panel) return;
-  if(!room){
-    panel.classList.add("hidden");
+  // تمت إزالة اللاعب من الغرفة (حذف من المضيف أو مغادرة)
+  if(!room.players || !room.players[state.playerId]){
+    const kicked = !!(room.kicked && room.kicked[state.playerId]);
+    resetToHome();
+    toast(kicked ? "تمت إزالتك من الغرفة" : "لم تعد ضمن هذه الغرفة");
     return;
   }
-  panel.classList.remove("hidden");
 
-  const players = room.players || {};
-  const sortedIds = Object.keys(players)
-    .sort((a, b) => (players[b].score || 0) - (players[a].score || 0));
-
-  const list = $("#leaderboard-list");
-  list.innerHTML = "";
-  sortedIds.forEach((id, idx) => {
-    const p = players[id];
-    const li = document.createElement("li");
-    if(id === state.playerId) li.classList.add("is-you");
-    li.innerHTML = `
-      <span class="lb-rank">${idx + 1}</span>
-      <span class="lb-name">${escapeHtml(p.name)}${id === state.playerId ? ' <span class="tag-you">(أنت)</span>' : ""}</span>
-      <span class="lb-score">${p.score || 0}</span>
-    `;
-    list.appendChild(li);
-  });
-
-  if(sortedIds.length === 0){
-    const li = document.createElement("li");
-    li.className = "lb-empty";
-    li.textContent = "لا يوجد لاعبون بعد";
-    list.appendChild(li);
-  }
-}
-
-/** شارة صغيرة وثابتة تُبقي رمز الغرفة مرئيًا في كل شاشات اللعب (وليس
- *  فقط شاشة اللوبي)، حتى يتمكن المضيف من مشاركته مع لاعبين جدد في أي
- *  وقت — خصوصًا أثناء فترة الانتظار بين الجولات. */
-function updateRoomChip(){
-  const chip = $("#global-room-chip");
-  if(!chip) return;
-  if(state.roomCode){
-    chip.classList.remove("hidden");
-    $("#global-room-chip-value").textContent = state.roomCode;
+  if((room.status === "game" && room.g) || room.status === "final"){
+    showScreen("screen-game");
+    renderGame(room);
   } else {
-    chip.classList.add("hidden");
+    hideGameLayers();
+    renderLobby(room);
   }
 }
 
 /* ---------------------------------------------------------------------
-   7.ج) تلميحك السري الدائم: يبقى ظاهرًا طوال مرحلتَي التلميحات والتصويت
-   ويختفي فقط عند اللوبي أو النتائج (نهاية الجولة رسميًا). يُحسب دائمًا
-   محليًا حسب state.playerId فقط — كل لاعب يرى كلمته هو حصرًا.
+   9) غرفة الانتظار
 --------------------------------------------------------------------- */
-function updatePersistentHint(room){
-  const el = $("#persistent-hint");
-  if(!el || !room || !room.words) return;
-  const isImpostor = (room.impostors || []).includes(state.playerId);
-  const myWord = isImpostor ? room.words.impostor : room.words.innocent;
-  el.classList.toggle("is-impostor", isImpostor);
-  $("#ph-label").textContent = isImpostor ? "أنت الأمبوستر" : "كلمتك";
-  $("#ph-word").textContent = myWord;
-  el.classList.remove("hidden");
-}
-
-function hidePersistentHint(){
-  const el = $("#persistent-hint");
-  if(el) el.classList.add("hidden");
-}
-
-/* ---------------------------------------------------------------------
-   8) شاشة اللوبي
---------------------------------------------------------------------- */
-const AVATAR_COLORS = ["#7c5cff", "#2dd4bf", "#f0c048", "#e879c9", "#5b8cff", "#f97373"];
-let lobbyLastPlayerCount = 0;
+const lobbyUI = { lastCount: 0, kickAsk: null };
 
 function roomJoinUrl(){
   return `${location.origin}${location.pathname}?room=${state.roomCode}`;
@@ -914,43 +852,37 @@ function renderLobby(room){
   showScreen("screen-lobby");
   $("#lobby-room-code").textContent = state.roomCode;
 
-  // شارات الإعدادات المختارة
   const settings = getRoomSettings(room);
   $("#wr-chip-rounds").textContent = `${settings.gameRounds} جولات`;
   $("#wr-chip-hints").textContent = `${hintsLabel(settings.hintRounds)} لكل لاعب`;
   $("#wr-chip-time").textContent = `${settings.hintTime} ثانية للتلميح`;
 
-  // قائمة اللاعبين الحيّة (مرتّبة حسب وقت الانضمام)
   const players = room.players || {};
-  const ids = Object.keys(players)
-    .sort((a, b) => (players[a].joinedAt || 0) - (players[b].joinedAt || 0));
+  const ids = sortedPlayerIds(room);
   $("#lobby-player-count").textContent = String(ids.length);
+  if(lobbyUI.kickAsk && !players[lobbyUI.kickAsk]) lobbyUI.kickAsk = null;
 
   const list = $("#lobby-player-list");
-  list.innerHTML = "";
-  ids.forEach((id, i) => {
+  list.innerHTML = ids.map(id => {
     const p = players[id];
-    const li = document.createElement("li");
-    li.className = "wr-player";
-    li.innerHTML = `
-      <div class="wr-avatar" style="background:${AVATAR_COLORS[i % AVATAR_COLORS.length]}">${escapeHtml(initialsOf(p.name))}</div>
+    const isHostRow = id === room.hostId;
+    let kick = "";
+    if(state.isHost && !isHostRow){
+      kick = lobbyUI.kickAsk === id
+        ? `<div class="wr-kick-ask"><button type="button" class="wr-kick-yes" data-kick-yes="${id}">حذف</button><button type="button" class="wr-kick-no" data-kick-no>إلغاء</button></div>`
+        : `<button type="button" class="wr-kick" data-kick="${id}" aria-label="حذف ${escapeHtml(p.name)}" title="حذف ${escapeHtml(p.name)}">×</button>`;
+    }
+    return `<li class="wr-player">
+      ${avatarHtml(room, id, "wr-avatar")}
       <span class="wr-name">${escapeHtml(p.name)}${id === state.playerId ? ' <span class="tag-you">(أنت)</span>' : ""}</span>
-      ${id === room.hostId ? '<span class="wr-host">المضيف</span>' : ""}
-    `;
-    list.appendChild(li);
-  });
-  const waiting = document.createElement("li");
-  waiting.className = "wr-waiting";
-  waiting.textContent = "بانتظار انضمام اللاعبين…";
-  list.appendChild(waiting);
+      ${isHostRow ? '<span class="wr-host">المضيف</span>' : ""}
+      ${kick}
+    </li>`;
+  }).join("") + '<li class="wr-waiting">بانتظار انضمام اللاعبين…</li>';
 
-  // التمرير تلقائيًا لأحدث لاعب عند انضمامه
-  if(ids.length > lobbyLastPlayerCount && lobbyLastPlayerCount > 0){
-    list.scrollTop = list.scrollHeight;
-  }
-  lobbyLastPlayerCount = ids.length;
+  if(ids.length > lobbyUI.lastCount && lobbyUI.lastCount > 0) list.scrollTop = list.scrollHeight;
+  lobbyUI.lastCount = ids.length;
 
-  const isNextRound = (room.gameVersion || 0) > 0;
   const ready = ids.length >= 3;
   const startBtn = $("#btn-start-game");
   const backBtn = $("#btn-back-settings");
@@ -958,48 +890,31 @@ function renderLobby(room){
   if(state.isSpectator){
     startBtn.classList.add("hidden");
     backBtn.classList.add("hidden");
-    hint.textContent = "أنت في وضع شاشة عرض للبث — بانتظار بدء الجولة...";
+    hint.textContent = "أنت في وضع شاشة عرض للبث — بانتظار بدء المباراة...";
   } else if(state.isHost){
     startBtn.classList.remove("hidden");
     backBtn.classList.remove("hidden");
-    startBtn.textContent = isNextRound ? "ابدأ الجولة التالية" : "الدخول وبدء المباراة";
     startBtn.setAttribute("aria-disabled", String(!ready));
     hint.textContent = ready ? "سيدخل جميع اللاعبين المباراة معك" : "تحتاج 3 لاعبين على الأقل للبدء";
   } else {
     startBtn.classList.add("hidden");
     backBtn.classList.add("hidden");
-    hint.textContent = isNextRound
-      ? "بانتظار المضيف لبدء الجولة التالية... يمكن لأصدقائك الانضمام الآن بنفس رمز الغرفة"
-      : "بانتظار المضيف لبدء اللعبة...";
+    hint.textContent = "بانتظار المضيف لبدء المباراة...";
   }
 
   renderRoomQrCode();
 }
 
-/** رمز QR يحتوي رابط انضمام مباشر (?room=CODE) يفتح التطبيق ويملأ رمز
- *  الغرفة تلقائيًا. يُعاد توليده فقط عند تغيّر رمز الغرفة. */
 function renderRoomQrCode(){
   const box = $("#qr-box");
   const canvasEl = $("#qr-canvas");
-  if(!box || !canvasEl) return;
-
-  if(typeof QRCode === "undefined"){
-    box.classList.add("hidden");
-    return;
-  }
+  if(typeof QRCode === "undefined"){ box.classList.add("hidden"); return; }
   box.classList.remove("hidden");
   if(canvasEl.dataset.room === state.roomCode) return;
-
   canvasEl.innerHTML = "";
   canvasEl.dataset.room = state.roomCode;
   try{
-    new QRCode(canvasEl, {
-      text: roomJoinUrl(),
-      width: 400,
-      height: 400,
-      colorDark: "#12101c",
-      colorLight: "#ffffff"
-    });
+    new QRCode(canvasEl, { text: roomJoinUrl(), width: 400, height: 400, colorDark: "#12101c", colorLight: "#ffffff" });
   } catch(e){
     console.warn("تعذّر توليد رمز QR", e);
     box.classList.add("hidden");
@@ -1030,541 +945,1111 @@ $("#btn-back-settings").addEventListener("click", (e) => {
 
 $("#btn-start-game").addEventListener("click", () => {
   if($("#btn-start-game").getAttribute("aria-disabled") === "true") return;
-  startGame();
+  startMatch();
 });
 
-async function startGame(){
+/* حذف لاعب (المضيف فقط): زر × ثم تأكيد "حذف" داخل نفس الصف */
+$("#lobby-player-list").addEventListener("click", (e) => {
+  const ask = e.target.closest("[data-kick]");
+  const yes = e.target.closest("[data-kick-yes]");
+  const no = e.target.closest("[data-kick-no]");
+  if(!state.isHost || !state.roomData) return;
+  if(ask){ lobbyUI.kickAsk = ask.dataset.kick; renderLobby(state.roomData); const y = $("[data-kick-yes]"); if(y) y.focus(); }
+  else if(no){ lobbyUI.kickAsk = null; renderLobby(state.roomData); }
+  else if(yes){ lobbyUI.kickAsk = null; kickPlayer(yes.dataset.kickYes); Sound.sfx("skip"); }
+});
+
+async function kickPlayer(id){
+  await Backend.transaction(state.roomCode, room => {
+    if(!room || room.hostId !== state.playerId || !room.players || !room.players[id]) return room;
+    delete room.players[id];
+    room.kicked = room.kicked || {};
+    room.kicked[id] = true;
+    return room;
+  });
+}
+
+/* =====================================================================
+   10) محرّك المباراة
+   =====================================================================
+   بيانات الغرفة أثناء المباراة:
+     status: "game" | "final" | "lobby"
+     match:  { round, totals{id:pts}, impHist[], lastImp, done }
+     usedWords: [] كلمات استُخدمت في هذه الغرفة (لا تتكرر حتى ينفد البنك)
+     g (الجولة الحالية):
+       phase: "pre" (مقدمة + بطاقة الدور) → "hints" → "voting" → "reveal"
+       t0 / cardAt / cardEndsAt: توقيتات المقدمة والبطاقة
+       order[]، impId، words{c,i,cat}، names{id:name}
+       turn، hintRound، turnEndsAt، turnSent، nextTurnAt، hints[]
+       votes{voter:target}، revealAt، guessEndsAt، guess، points
+   كل الأوقات بتوقيت خادم Firebase (now()).
+--------------------------------------------------------------------- */
+const T = {
+  INTRO: 5000,          // مدة المقدمة (3-2-1-ابدأ!)
+  CARD_SEC: 10,         // مدة بقاء البطاقة مفتوحة
+  CARD_OPEN: 1300,      // البطاقة تنقلب لتظهر الوجه
+  CARD_COUNT: 2300,     // بدء عدّاد البطاقة
+  FLIP: 800,            // مدة القلب/الإغلاق
+  CARD_OUT: 1600,       // إغلاق + خروج البطاقة
+  TURN_LEAD: 500,       // مهلة قبل أول دور
+  TURN_GAP: 1200,       // مهلة بعد إرسال التلميح قبل الدور التالي
+  REVEAL_DELAY: 900,    // بعد آخر صوت
+  REVEAL_NAME: 2700,    // ظهور اسم الأمبوستر
+  REVEAL_FADE: 5800,    // بدء تلاشي طبقة الكشف
+  REVEAL_OFF: 6600,     // انتهاء الكشف وفتح التخمين
+  GUESS_TIMEOUT: 60000, // حد أقصى للتخمين (لو خرج الأمبوستر أو تأخر كثيرًا)
+  FOLLOWER_DELAY: 1500  // الأجهزة غير المضيفة تنتظر قليلًا قبل نقل المرحلة
+};
+
+const hintsAt = (g) => g.cardEndsAt + T.CARD_OUT;
+
+function wordBank(){
+  const W = window.AYMN_WORDS && window.AYMN_WORDS.categories;
+  return W ? Object.keys(W).flatMap(k => W[k].words.map(w => ({ cat: k, w }))) : [];
+}
+
+/** كلمة المواطنين من فئة، وكلمة الأمبوستر من فئة مختلفة، بدون تكرار كلمة
+ *  في نفس الغرفة حتى يقترب البنك من النفاد (أقل من 12 كلمة متبقية). */
+function pickPair(usedWords){
+  const all = wordBank();
+  if(!all.length) return { words: { c: "قهوة", i: "طائرة", cat: "" }, used: usedWords || [] };
+  let used = (usedWords || []).slice();
+  let pool = all.filter(x => !used.includes(x.w));
+  if(pool.length < 12){ used = []; pool = all; }
+  const a = pickOne(pool);
+  let ip = pool.filter(x => x.cat !== a.cat && normalizeArabic(x.w) !== normalizeArabic(a.w));
+  if(!ip.length) ip = all.filter(x => x.cat !== a.cat);
+  const b = pickOne(ip);
+  used.push(a.w, b.w);
+  return { words: { c: a.w, i: b.w, cat: a.cat }, used };
+}
+
+/** الأمبوستر يتغيّر كل جولة: من لم يكن أمبوستر بعد في المباراة، وليس
+ *  أمبوستر الجولة السابقة. عندما يأخذ الجميع دورهم يبدأ السجل من جديد. */
+function pickImpostor(ids, match){
+  let hist = (match.impHist || []).filter(id => ids.includes(id));
+  let cand = ids.filter(id => !hist.includes(id) && id !== match.lastImp);
+  if(!cand.length){ hist = []; cand = ids.filter(id => id !== match.lastImp); }
+  if(!cand.length) cand = ids;
+  const impId = pickOne(cand);
+  hist.push(impId);
+  return { impId, impHist: hist };
+}
+
+/** يبني جولة جديدة داخل transaction. newMatch=true يصفّر النقاط والجولات. */
+function buildRound(room, newMatch){
+  const ids = sortedPlayerIds(room);
+  const prev = room.match || {};
+  const match = newMatch
+    ? { round: 1, totals: {}, impHist: [], lastImp: null, done: 0 }
+    : { round: (prev.round || 0) + 1, totals: prev.totals || {}, impHist: prev.impHist || [], lastImp: prev.lastImp || null, done: prev.done || 0 };
+  const { impId, impHist } = pickImpostor(ids, match);
+  match.impHist = impHist;
+  match.lastImp = impId;
+  const { words, used } = pickPair(room.usedWords);
+  const t0 = now() + 300;
+  const names = {};
+  ids.forEach(id => { names[id] = room.players[id].name; });
+  room.match = match;
+  room.usedWords = used;
+  room.status = "game";
+  room.finalAt = null;
+  room.g = {
+    id: Math.random().toString(36).slice(2, 10),
+    phase: "pre",
+    t0, cardAt: t0 + T.INTRO, cardEndsAt: t0 + T.INTRO + T.CARD_COUNT + T.CARD_SEC * 1000,
+    rerolls: 0, rerollAt: 0, prevWords: null,
+    order: shuffleArray(ids), impId, words, names,
+    turn: 0, hintRound: 1, turnEndsAt: 0, turnSent: false, nextTurnAt: 0,
+    hints: [], votes: {}, revealAt: 0, guessEndsAt: 0, guess: null, points: null, voided: false
+  };
+  return room;
+}
+
+function isPresent(room, id){ return !!(room.players && room.players[id]); }
+
+/** من يحق لهم التصويت: لاعبو الجولة الموجودون في الغرفة والمتصلون */
+function eligibleVoters(room){
+  const g = room.g;
+  return (g.order || []).filter(id => isPresent(room, id) && room.players[id].connected !== false);
+}
+
+/** ينتقل للدور التالي، متخطيًا من غادر الغرفة. بعد آخر دور ← التصويت. */
+function seekTurn(room, turn, round, t){
+  const g = room.g;
+  const settings = getRoomSettings(room);
+  const n = (g.order || []).length;
+  for(let guard = 0; guard <= n * (settings.hintRounds + 1); guard++){
+    if(turn >= n){ turn = 0; round++; }
+    if(round > settings.hintRounds){
+      g.phase = "voting";
+      g.votes = {};
+      g.turnSent = false;
+      return;
+    }
+    if(isPresent(room, g.order[turn])){
+      g.turn = turn;
+      g.hintRound = round;
+      g.turnEndsAt = t + settings.hintTime * 1000;
+      g.turnSent = false;
+      g.nextTurnAt = 0;
+      return;
+    }
+    turn++;
+  }
+  g.phase = "voting";
+  g.votes = {};
+}
+
+function voteCounts(votes){
+  const c = {};
+  Object.values(votes || {}).forEach(tid => { c[tid] = (c[tid] || 0) + 1; });
+  return c;
+}
+
+/** كُشف الأمبوستر فقط إذا حصل وحده على أعلى عدد أصوات */
+function isCaught(g){
+  const c = voteCounts(g.votes), vals = Object.values(c);
+  const mx = Math.max(0, ...vals);
+  return mx > 0 && c[g.impId] === mx && vals.filter(v => v === mx).length === 1;
+}
+
+/** نقاط الجولة (نفس computePoints في ملف التصميم) */
+function computePoints(room, correct){
+  const g = room.g, imp = g.impId, P = {};
+  const ids = (g.order || []).filter(id => isPresent(room, id));
+  let escaped = 0;
+  ids.forEach(id => { P[id] = { pts: 0, items: [] }; });
+  ids.forEach(id => {
+    if(id === imp) return;
+    if((g.votes || {})[id] === imp){ P[id].pts += 1; P[id].items.push({ t: "صوّت صح · +1", k: "good" }); }
+    else { escaped++; P[id].items.push({ t: "صوّت خطأ · 0", k: "bad" }); }
+  });
+  if(!P[imp]) return P;
+  if(escaped){ P[imp].pts += escaped * .5; P[imp].items.push({ t: `لم يصوّت عليه ${escaped} · +${fmtPts(escaped * .5)}`, k: "imp" }); }
+  else P[imp].items.push({ t: "صوّت عليه الجميع · 0", k: "bad" });
+  if(correct){ P[imp].pts += 2; P[imp].items.push({ t: "خمّن الكلمة · +2", k: "imp" }); }
+  else {
+    P[imp].items.push({ t: "تخمين خاطئ · 0", k: "bad" });
+    ids.forEach(id => { if(id !== imp){ P[id].pts += 1; P[id].items.push({ t: "أخطأ الأمبوستر · +1", k: "good" }); } });
+  }
+  return P;
+}
+
+function applyGuess(room, text, timeout){
+  const g = room.g;
+  const correct = !timeout && normalizeArabic(text) === normalizeArabic(g.words.c);
+  const P = computePoints(room, correct);
+  room.match.totals = room.match.totals || {};
+  Object.entries(P).forEach(([id, v]) => { room.match.totals[id] = (room.match.totals[id] || 0) + v.pts; });
+  room.match.done = (room.match.done || 0) + 1;
+  g.guess = { text: text || "", correct, timeout: !!timeout };
+  g.points = P;
+}
+
+/** ينقل المباراة للمرحلة التالية إن حان وقتها. تعيد الغرفة بعد التعديل،
+ *  أو undefined إن لم يتغيّر شيء. تُستدعى داخل transaction. */
+function advanceRoom(room, t){
+  if(!room || room.status !== "game" || !room.g) return undefined;
+  const g = room.g;
+  g.hints = g.hints || [];
+  g.votes = g.votes || {};
+
+  // خروج الأمبوستر قبل انتهاء الجولة يُلغي الجولة
+  if(!g.points && !isPresent(room, g.impId)){
+    g.voided = true;
+    g.points = {};
+    g.phase = "reveal";
+    return room;
+  }
+  if(g.phase === "pre" && t >= hintsAt(g)){
+    g.phase = "hints";
+    seekTurn(room, 0, 1, t + T.TURN_LEAD);
+    return room;
+  }
+  if(g.phase === "hints"){
+    const curId = g.order[g.turn];
+    if(!g.turnSent && !isPresent(room, curId)){
+      seekTurn(room, g.turn + 1, g.hintRound, t);
+      return room;
+    }
+    if(!g.turnSent && t >= g.turnEndsAt){
+      g.hints.push({ pid: curId, text: "", round: g.hintRound, skipped: true });
+      g.turnSent = true;
+      g.nextTurnAt = t + T.TURN_GAP;
+      return room;
+    }
+    if(g.turnSent && t >= g.nextTurnAt){
+      seekTurn(room, g.turn + 1, g.hintRound, t);
+      return room;
+    }
+    return undefined;
+  }
+  if(g.phase === "voting"){
+    const voters = eligibleVoters(room);
+    if(voters.length && voters.every(id => g.votes[id])){
+      g.phase = "reveal";
+      g.revealAt = t + T.REVEAL_DELAY;
+      g.guessEndsAt = g.revealAt + T.REVEAL_OFF + T.GUESS_TIMEOUT;
+      return room;
+    }
+    return undefined;
+  }
+  if(g.phase === "reveal" && !g.points && t >= g.guessEndsAt){
+    applyGuess(room, "", true);
+    return room;
+  }
+  return undefined;
+}
+
+/* ---------- إجراءات اللاعبين (كلها transactions على الغرفة) ---------- */
+function roomTx(fn){
+  if(!state.roomCode) return Promise.resolve();
+  return Backend.transaction(state.roomCode, room => {
+    if(!room) return room;
+    return fn(room);
+  }).catch(err => { console.error(err); toast("تعذّر الاتصال، حاول مرة أخرى"); });
+}
+
+function startMatch(){
+  return roomTx(room => {
+    if(room.hostId !== state.playerId) return undefined;
+    if(sortedPlayerIds(room).length < 3){ toast("تحتاج 3 لاعبين على الأقل للبدء"); return undefined; }
+    return buildRound(room, true);
+  });
+}
+
+function nextRound(){
+  return roomTx(room => {
+    if(room.hostId !== state.playerId || room.status !== "game" || !room.g || !room.g.points) return undefined;
+    if(sortedPlayerIds(room).length < 3){ toast("تحتاج 3 لاعبين على الأقل للمتابعة"); return undefined; }
+    return buildRound(room, false);
+  });
+}
+
+function showFinal(){
+  return roomTx(room => {
+    if(room.hostId !== state.playerId) return undefined;
+    room.status = "final";
+    room.finalAt = now();
+    return room;
+  });
+}
+
+function backToRoom(){
+  return roomTx(room => {
+    if(room.hostId !== state.playerId) return undefined;
+    room.status = "lobby";
+    room.g = null;
+    room.finalAt = null;
+    return room;
+  });
+}
+
+async function leaveMatch(){
+  const code = state.roomCode, me = state.playerId;
+  resetToHome();
+  if(!code) return;
+  await Backend.transaction(code, room => {
+    if(!room || !room.players || !room.players[me]) return room;
+    delete room.players[me];
+    return room;
+  }).catch(() => {});
+}
+
+function submitHint(text){
+  text = (text || "").trim().slice(0, 30);
+  if(!text) return;
+  const me = state.playerId;
+  return roomTx(room => {
+    const g = room.g;
+    if(room.status !== "game" || !g || g.phase !== "hints" || g.turnSent || g.order[g.turn] !== me) return undefined;
+    g.hints = g.hints || [];
+    g.hints.push({ pid: me, text, round: g.hintRound, skipped: false });
+    g.turnSent = true;
+    g.nextTurnAt = now() + T.TURN_GAP;
+    return room;
+  });
+}
+
+function castVote(target){
+  const me = state.playerId;
+  return roomTx(room => {
+    const g = room.g;
+    if(room.status !== "game" || !g || g.phase !== "voting") return undefined;
+    g.votes = g.votes || {};
+    if(g.votes[me] || target === me || !(g.order || []).includes(me) || !isPresent(room, target)) return undefined;
+    g.votes[me] = target;
+    return room;
+  });
+}
+
+function submitGuess(text){
+  text = (text || "").trim().slice(0, 30);
+  if(!text) return;
+  const me = state.playerId;
+  return roomTx(room => {
+    const g = room.g;
+    if(room.status !== "game" || !g || g.phase !== "reveal" || g.points || g.impId !== me) return undefined;
+    applyGuess(room, text, false);
+    return room;
+  });
+}
+
+/** "كلمة جديدة" (المضيف فقط، والبطاقة مفتوحة): نفس الأمبوستر وكلمات جديدة */
+function rerollWord(){
+  return roomTx(room => {
+    const g = room.g, t = now();
+    if(room.hostId !== state.playerId || room.status !== "game" || !g || g.phase !== "pre") return undefined;
+    if(cardInfo(g, t).stage !== "open") return undefined;
+    const { words, used } = pickPair(room.usedWords);
+    g.prevWords = g.words;
+    g.words = words;
+    room.usedWords = used;
+    g.rerolls = (g.rerolls || 0) + 1;
+    g.rerollAt = t;
+    g.cardEndsAt = t + T.FLIP * 2 + 200 + T.CARD_SEC * 1000;
+    return room;
+  });
+}
+
+/* ---------- حالة البطاقة لحظيًا (من الطوابع الزمنية) ---------- */
+function cardInfo(g, t){
+  const openAt = g.cardAt + T.CARD_OPEN;
+  const rerolls = g.rerolls || 0;
+  const inReroll = rerolls > 0 && t >= g.rerollAt && t < g.rerollAt + T.FLIP;
+  let stage;
+  if(t < g.cardAt + 60) stage = "pre";
+  else if(t < openAt) stage = "enter";
+  else if(inReroll) stage = "close";
+  else if(t < g.cardEndsAt) stage = "open";
+  else if(t < g.cardEndsAt + T.FLIP) stage = "close";
+  else stage = "exit";
+  let flip = 0;
+  if(t >= openAt) flip = (inReroll ? 2 * rerolls : 2 * rerolls + 1) + (t >= g.cardEndsAt ? 1 : 0);
+  const countFrom = rerolls ? g.rerollAt + T.FLIP * 2 + 200 : g.cardAt + T.CARD_COUNT;
+  const left = t < countFrom ? T.CARD_SEC : Math.max(0, Math.min(T.CARD_SEC, (g.cardEndsAt - t) / 1000));
+  const words = inReroll && g.prevWords ? g.prevWords : g.words;
+  return { stage, flip, left, words, openAt };
+}
+
+/* =====================================================================
+   11) عرض المباراة
+   ===================================================================== */
+const ui = {
+  gid: null, wordShown: false, reviewTab: "all", reviewDone: false, selected: null,
+  scoreShown: false, sig: {}, fired: new Set(), lastHints: 0, lastVotes: 0,
+  lastTurnKey: "", lastView: "", finalKey: "", guessDoneKey: "", cardStage: "",
+  advKey: "", advAt: 0
+};
+
+function resetRoundUI(gid){
+  Object.assign(ui, { gid, wordShown: false, reviewTab: "all", reviewDone: false, selected: null, scoreShown: false, sig: {}, lastHints: 0, lastVotes: 0, myVoteSeen: false, lastTurnKey: "", cardStage: "" });
+  $("#hint-input").value = "";
+  $("#guess-input").value = "";
+  $("#btn-send-hint").disabled = true;
+  $("#btn-guess").disabled = true;
+}
+
+/** يعيد بناء عنصر فقط إن تغيّر محتواه (حتى لا تتكرر الحركات بلا داعٍ) */
+function setHtml(el, key, html){
+  if(ui.sig[key] === html) return false;
+  ui.sig[key] = html;
+  el.innerHTML = html;
+  return true;
+}
+
+function myRole(g){ return g.impId === state.playerId ? "impostor" : "citizen"; }
+function myWord(g, words){ words = words || g.words; return myRole(g) === "impostor" ? words.i : words.c; }
+
+/** تشغيل صوت مرة واحدة عند مرور وقته (ولا يُشغَّل إن فات بأكثر من 1.5ث) */
+function sfxAt(key, at, name, t){
+  if(ui.fired.has(key) || t < at) return;
+  ui.fired.add(key);
+  if(t - at < 1500) Sound.sfx(name);
+}
+
+function hideGameLayers(){
+  ["#ov-intro", "#ov-card", "#ov-reveal", "#confetti"].forEach(s => { const el = $(s); el.classList.add("hidden"); el.classList.remove("is-in"); });
+  Modal.close(exitModal);
+}
+
+function currentView(room, t){
+  const g = room.g;
+  if(room.status === "final") return "final";
+  if(!g) return "hints";
+  if(g.voided) return "score";
+  if(g.phase === "pre" || g.phase === "hints") return "hints";
+  if(g.phase === "voting") return (ui.reviewDone || (g.votes && g.votes[state.playerId])) ? "vote" : "review";
+  if(g.phase === "reveal"){
+    if(t < g.revealAt) return "vote";
+    return (g.points && ui.scoreShown) ? "score" : "reveal";
+  }
+  return "hints";
+}
+
+function renderGame(room){
+  const t = now();
+  const g = room.g;
+  if(g && g.id !== ui.gid) resetRoundUI(g.id);
+  const settings = getRoomSettings(room);
+  const match = room.match || { round: 1, totals: {} };
+  const view = currentView(room, t);
+  const inRound = g && g.order && g.order.includes(state.playerId);
+
+  // الشريط العلوي
+  $("#gm-round").textContent = `الجولة ${match.round || 1} من ${settings.gameRounds}`;
+  const phaseLabels = { review: "مراجعة التلميحات", vote: "التصويت", reveal: "كشف الأمبوستر", score: "النقاط", final: "النتيجة النهائية" };
+  $("#gm-phase").textContent = view === "hints"
+    ? `التلميح ${Math.min((g && g.hintRound) || 1, settings.hintRounds)} من ${settings.hintRounds}`
+    : phaseLabels[view];
+  $("#btn-exit").classList.toggle("hidden", view === "final");
+  const wordBtn = $("#btn-word");
+  wordBtn.classList.toggle("hidden", !(g && inRound) || view === "final");
+  if(g && inRound) $("#gm-word").textContent = myWord(g, cardInfo(g, t).words);
+  wordBtn.setAttribute("aria-pressed", String(ui.wordShown));
+  $("#btn-mute").classList.toggle("is-muted", Sound.muted);
+  $("#btn-mute").setAttribute("aria-label", Sound.muted ? "تشغيل الصوت" : "كتم الصوت");
+  $("#btn-mute").title = Sound.muted ? "تشغيل الصوت" : "كتم الصوت";
+
+  // تبديل العرض
+  ["hints", "review", "vote", "reveal", "score", "final"].forEach(v => $("#gv-" + v).classList.toggle("active", v === view));
+  if(view !== ui.lastView){
+    if(ui.lastView && view !== "hints") Sound.sfx(view === "score" && room.status === "game" && (match.round || 1) >= settings.gameRounds ? "end" : "whoosh");
+    ui.lastView = view;
+  }
+
+  if(view === "final"){ renderFinal(room, t); }
+  else { $("#confetti").classList.add("hidden"); ui.finalKey = ""; }
+  if(!g) return;
+  if(view === "hints") renderHints(room, t, settings);
+  if(view === "review") renderReview(room, settings);
+  if(view === "vote") renderVote(room);
+  if(view === "reveal") renderRevealView(room, t);
+  if(view === "score") renderScore(room, settings);
+  renderOverlays(room, t, settings);
+  gameSounds(room, t, settings);
+}
+
+/* ----- مرحلة التلميحات ----- */
+function renderHints(room, t, settings){
+  const g = room.g;
+  const hinting = g.phase === "hints";
+  $("#gv-hints").classList.toggle("is-waiting", g.phase === "pre" && t < hintsAt(g));
+  const order = (g.order || []).filter(id => isPresent(room, id) || (g.hints || []).some(h => h.pid === id));
+  const curId = hinting ? g.order[g.turn] : null;
+  const mine = hinting && curId === state.playerId;
+
+  // شريط ترتيب الأدوار — يرى الجميع دور من الآن
+  const curIdx = hinting ? g.turn : -1;
+  const chips = order.map(id => {
+    const idx = g.order.indexOf(id);
+    const isCur = idx === curIdx;
+    const done = hinting && (idx < curIdx || (isCur && g.turnSent));
+    const status = isCur ? (g.turnSent ? "✓" : (id === state.playerId ? "دورك" : "يكتب…")) : (done ? "✓" : "");
+    return `<div class="order-chip${isCur ? " is-cur" : ""}${done && !isCur ? " is-done" : ""}">
+      ${avatarHtml(room, id)}
+      <span class="order-chip-name">${escapeHtml(playerLabel(room, id))}</span>
+      <span class="order-chip-status">${status}</span>
+    </div>`;
+  }).join("");
+  if(setHtml($("#order-strip"), "order", chips)){
+    // تمرير الشريط أفقيًا فقط ليتوسّط صاحب الدور (بدون تحريك الصفحة)
+    const strip = $("#order-strip"), cur = $("#order-strip .is-cur");
+    if(cur){
+      const a = cur.getBoundingClientRect(), b = strip.getBoundingClientRect();
+      strip.scrollBy({ left: (a.left + a.width / 2) - (b.left + b.width / 2), behavior: "smooth" });
+    }
+  }
+
+  // لوحة الدور
+  const panel = $("#turn-panel");
+  panel.classList.toggle("is-mine", mine);
+  $("#turn-eyebrow").textContent = !hinting ? "استعدوا…" : mine ? "دورك الآن!" : "الدور الآن عند";
+  $("#turn-title").textContent = !hinting ? "التلميحات تبدأ" : mine ? "اكتب تلميحك" : playerName(room, curId);
+  $("#turn-sub").textContent = !hinting ? "" : g.turnSent
+    ? (mine ? "تم إرسال تلميحك ✓" : "تم إرسال التلميح ✓")
+    : mine ? "كلمة أو عبارة قصيرة تتعلق بكلمتك دون كشفها" : "يكتب تلميحه الآن…";
+  const av = $("#turn-avatar");
+  av.style.background = curId ? playerColor(room, curId) : "#2a2552";
+  av.textContent = curId ? initialsOf(playerName(room, curId)) : "";
+
+  const total = settings.hintTime;
+  const left = hinting ? Math.max(0, Math.min(total, (g.turnEndsAt - t) / 1000)) : total;
+  const ringColor = !hinting ? "var(--teal)" : left <= 3 ? "var(--red)" : left <= 5 ? "var(--yellow)" : "var(--teal)";
+  $(".turn-ring").style.setProperty("--ring", ringColor);
+  $("#ring-fg").style.strokeDashoffset = String(339.29 * (1 - (hinting && !g.turnSent ? left / total : (hinting ? 0 : 1))));
+  $("#turn-secs").textContent = hinting ? String(Math.ceil(g.turnSent ? 0 : left)) : "—";
+
+  const canWrite = mine && !g.turnSent;
+  const box = $("#turn-input");
+  if(canWrite && box.classList.contains("hidden")){
+    box.classList.remove("hidden");
+    const inp = $("#hint-input");
+    inp.value = "";
+    $("#btn-send-hint").disabled = true;
+    inp.focus({ preventScroll: true });
+  } else if(!canWrite && !box.classList.contains("hidden")){
+    box.classList.add("hidden");
+  }
+
+  // سجل التلميحات
+  const hints = g.hints || [];
+  $("#feed-count").textContent = String(hints.length);
+  $("#feed-empty").classList.toggle("hidden", hints.length > 0);
+  const feed = $("#feed");
+  if(setHtml(feed, "feed", hints.map(h => `<li class="${h.pid === state.playerId ? "is-mine" : ""}">
+      ${avatarHtml(room, h.pid)}
+      <div class="feed-body">
+        <span class="feed-meta">${escapeHtml(h.pid === state.playerId ? "أنت" : playerName(room, h.pid))} · التلميح ${h.round}</span>
+        <span class="feed-text${h.skipped ? " is-skip" : ""}">${escapeHtml(h.skipped ? "تخطّى" : h.text)}</span>
+      </div>
+    </li>`).join(""))){
+    feed.scrollTo({ top: feed.scrollHeight, behavior: "smooth" });
+  }
+}
+
+$("#hint-input").addEventListener("input", (e) => { $("#btn-send-hint").disabled = !e.target.value.trim(); });
+$("#hint-input").addEventListener("keydown", (e) => { if(e.key === "Enter"){ e.preventDefault(); sendMyHint(); } });
+$("#btn-send-hint").addEventListener("click", sendMyHint);
+function sendMyHint(){
+  const v = $("#hint-input").value.trim();
+  if(!v) return;
+  $("#btn-send-hint").disabled = true;
+  submitHint(v);
+}
+
+/* ----- مراجعة التلميحات ----- */
+function hintCountText(n){ return n === 1 ? "تلميح واحد" : n === 2 ? "تلميحان" : `${n} تلميحات`; }
+
+function renderReview(room, settings){
+  const g = room.g, tab = ui.reviewTab;
+  const tabs = [["all", "الكل"], ...Array.from({ length: settings.hintRounds }, (_, i) => [i + 1, `التلميح ${i + 1}`])];
+  setHtml($("#review-tabs"), "rtabs", tabs.map(([v, l]) =>
+    `<button type="button" role="tab" aria-selected="${tab === v}" data-tab="${v}">${l}</button>`).join(""));
+  const order = (g.order || []).filter(id => isPresent(room, id));
+  setHtml($("#review-grid"), "rgrid", order.map(id => {
+    const all = (g.hints || []).filter(h => h.pid === id);
+    const hs = all.filter(h => tab === "all" || h.round === tab);
+    const list = hs.length ? hs : [{ round: "–", text: "لا يوجد", skipped: true }];
+    return `<div class="review-card${id === state.playerId ? " is-mine" : ""}">
+      <div class="review-card-head">
+        ${avatarHtml(room, id)}
+        <div class="review-card-name"><b>${escapeHtml(playerLabel(room, id))}</b><span>${tab === "all" ? hintCountText(all.filter(h => !h.skipped).length) : `التلميح ${tab}`}</span></div>
+      </div>
+      <div class="hint-chips">${list.map(h => `<span class="hint-chip${h.skipped ? " is-skip" : ""}"><span class="hint-chip-n">${h.round}</span><span>${escapeHtml(h.skipped && h.text !== "لا يوجد" ? "تخطّى" : h.text)}</span></span>`).join("")}</div>
+    </div>`;
+  }).join(""));
+}
+
+$("#review-tabs").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-tab]");
+  if(!b) return;
+  ui.reviewTab = b.dataset.tab === "all" ? "all" : Number(b.dataset.tab);
+  if(state.roomData) renderGame(state.roomData);
+});
+$("#btn-go-vote").addEventListener("click", () => {
+  ui.reviewDone = true;
+  if(state.roomData) renderGame(state.roomData);
+});
+
+/* ----- التصويت ----- */
+function renderVote(room){
+  const g = room.g, votes = g.votes || {};
+  const voters = eligibleVoters(room);
+  const voted = voters.filter(id => votes[id]).length, N = voters.length || 1;
+  $("#vote-progress-text").textContent = `${voted} من ${voters.length}`;
+  $("#vote-progress-bar").style.width = `${voted / N * 100}%`;
+  const myV = votes[state.playerId];
+  const order = (g.order || []).filter(id => isPresent(room, id));
+  if(ui.selected && !order.includes(ui.selected)) ui.selected = null;
+  setHtml($("#vote-grid"), "vgrid", order.map(id => {
+    const self = id === state.playerId, sel = (myV || ui.selected) === id;
+    const preview = (g.hints || []).filter(h => h.pid === id && !h.skipped).map(h => h.text).join(" · ") || "—";
+    return `<button type="button" role="radio" class="vote-card${self ? " is-self" : ""}${votes[id] ? " has-voted" : ""}" aria-checked="${sel}" data-vote="${id}" ${self || myV ? "disabled" : ""}>
+      <span class="voted-badge">صوّت ✓</span>
+      ${avatarHtml(room, id)}
+      <span class="vote-card-name">${escapeHtml(playerLabel(room, id))}</span>
+      <span class="vote-card-hints">${escapeHtml(preview)}</span>
+    </button>`;
+  }).join(""));
+  const btn = $("#btn-cast-vote");
+  btn.textContent = myV ? "تم التصويت ✓" : "تصويت";
+  btn.disabled = !!myV || !ui.selected;
+  $("#vote-hint").textContent = myV
+    ? `بانتظار تصويت البقية… (${voted} من ${voters.length})`
+    : ui.selected ? `ستصوّت على ${playerName(room, ui.selected)}` : "لا يمكنك التصويت على نفسك";
+}
+
+$("#vote-grid").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-vote]");
+  if(!b || b.disabled) return;
+  ui.selected = b.dataset.vote;
+  Sound.sfx("vote");
+  if(state.roomData) renderGame(state.roomData);
+});
+$("#vote-grid").addEventListener("keydown", (e) => {
+  const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
+  if(!keys.includes(e.key)) return;
+  const cards = $all("#vote-grid .vote-card:not(:disabled)");
+  if(!cards.length) return;
+  e.preventDefault();
+  let i = cards.indexOf(document.activeElement);
+  i = (e.key === "ArrowLeft" || e.key === "ArrowDown") ? (i + 1) % cards.length : (i - 1 + cards.length) % cards.length;
+  ui.selected = cards[i].dataset.vote;
+  if(state.roomData) renderGame(state.roomData);
+  const again = $(`#vote-grid [data-vote="${ui.selected}"]`);
+  if(again) again.focus();
+});
+$("#btn-cast-vote").addEventListener("click", () => {
+  if(!ui.selected) return;
+  $("#btn-cast-vote").disabled = true;
+  castVote(ui.selected);
+});
+
+/* ----- نتيجة التصويت + التخمين ----- */
+function renderRevealView(room, t){
+  const g = room.g, votes = g.votes || {};
+  const caught = isCaught(g), meImp = g.impId === state.playerId;
+  const verdict = meImp ? (caught ? "تم كشفك!" : "نجوت من الكشف!") : (caught ? "كشفتموه!" : "نجا من الكشف!");
+  const vp = $("#verdict-pill");
+  vp.textContent = verdict;
+  vp.className = "verdict-pill " + (caught ? "is-caught" : "is-escaped");
+
+  const c = voteCounts(votes), N = Math.max(1, Object.keys(votes).length);
+  const barsOn = t >= g.revealAt + T.REVEAL_OFF;
+  const order = (g.order || []).filter(id => isPresent(room, id) || id === g.impId);
+  const rows = order.slice().sort((a, b) => (c[b] || 0) - (c[a] || 0));
+  setHtml($("#tally"), "tally", rows.map(id => {
+    const n = c[id] || 0, isImp = id === g.impId;
+    const vs = Object.keys(votes).filter(v => votes[v] === id);
+    return `<li class="${isImp ? "is-imp" : ""}">
+      <div class="tally-row">
+        ${avatarHtml(room, id)}
+        <span class="tally-name">${escapeHtml(playerLabel(room, id))}</span>
+        ${isImp ? '<span class="badge-imp">الأمبوستر</span>' : ""}
+        <span class="tally-count">${n}</span>
+      </div>
+      <div class="bar"><div class="bar-fill" data-w="${n / N * 100}%"></div></div>
+      <span class="tally-voters">${vs.length ? `صوّت له: ${vs.map(v => escapeHtml(v === state.playerId ? "أنت" : playerName(room, v))).join("، ")}` : "لم يصوّت له أحد"}</span>
+    </li>`;
+  }).join(""));
+  $all("#tally .bar-fill").forEach(b => { b.style.width = barsOn ? b.dataset.w : "0%"; });
+
+  // التخمين
+  const gs = g.points ? "done" : (barsOn ? "wait" : "pending");
+  const impName = playerName(room, g.impId);
+  const card = $("#guess-card");
+  card.classList.toggle("is-correct", gs === "done" && !!(g.guess && g.guess.correct));
+  card.classList.toggle("is-wrong", gs === "done" && !(g.guess && g.guess.correct));
+  $("#guess-title").textContent = gs === "done"
+    ? (g.guess && g.guess.correct ? "خمّن الكلمة صح!" : "تخمين خاطئ")
+    : meImp ? "خمّن كلمتهم" : `${impName} يخمّن كلمتكم`;
+  $("#guess-sub").textContent = gs === "done" ? ""
+    : meImp ? "اكتب الكلمة التي تظن أن باقي اللاعبين حصلوا عليها. التخمين الصحيح يمنحك نقطتين إضافيتين."
+    : "إن خمّنها صح يكسب نقطتين إضافيتين، وإن أخطأ يأخذ كل لاعب نقطة.";
+  const form = $("#guess-form");
+  const canGuess = meImp && gs === "wait";
+  if(canGuess && form.classList.contains("hidden")){
+    form.classList.remove("hidden");
+    $("#guess-input").focus({ preventScroll: true });
+  } else if(!canGuess) form.classList.add("hidden");
+  $("#guess-wait").classList.toggle("hidden", !(!meImp && gs === "wait"));
+  $("#guess-done").classList.toggle("hidden", gs !== "done");
+  if(gs === "done" && g.guess){
+    $("#guess-word").textContent = g.guess.timeout ? "لم يُرسل تخمين" : g.guess.text;
+    $("#guess-verdict").textContent = g.guess.correct ? "+2 نقطة للأمبوستر" : "+1 نقطة لكل لاعب آخر";
+    $("#guess-line").textContent = `الكلمة الصحيحة: ${g.words.c}`;
+  }
+}
+
+$("#guess-input").addEventListener("input", (e) => { $("#btn-guess").disabled = !e.target.value.trim(); });
+$("#guess-input").addEventListener("keydown", (e) => { if(e.key === "Enter"){ e.preventDefault(); sendMyGuess(); } });
+$("#btn-guess").addEventListener("click", sendMyGuess);
+function sendMyGuess(){
+  const v = $("#guess-input").value.trim();
+  if(!v) return;
+  $("#btn-guess").disabled = true;
+  submitGuess(v);
+}
+$("#btn-show-score").addEventListener("click", () => {
+  ui.scoreShown = true;
+  if(state.roomData) renderGame(state.roomData);
+});
+
+/* ----- لوحة النقاط ----- */
+function renderScore(room, settings){
+  const g = room.g, match = room.match || {}, totals = match.totals || {}, P = g.points || {};
+  const isFinalRound = (match.round || 1) >= settings.gameRounds;
+  $("#score-eyebrow").textContent = `نقاط الجولة ${match.round || 1} من ${settings.gameRounds}`;
+  const note = $("#score-note");
+  note.classList.toggle("hidden", !g.voided);
+  note.textContent = g.voided ? "انتهت الجولة بخروج الأمبوستر — لا نقاط في هذه الجولة" : "";
+  const rows = sortedPlayerIds(room).sort((a, b) => (totals[b] || 0) - (totals[a] || 0));
+  setHtml($("#score-list"), "score", rows.map((id, i) => {
+    const pts = (P[id] || {}).pts || 0;
+    const items = ((P[id] || {}).items || []).map(it => `<span class="pts-chip k-${it.k}">${escapeHtml(it.t)}</span>`).join("");
+    return `<li class="${i === 0 ? "is-first" : ""}${id === state.playerId ? " is-mine" : ""}" style="animation-delay:${i * 80}ms">
+      <span class="score-rank">${i + 1}</span>
+      ${avatarHtml(room, id)}
+      <div class="score-main">
+        <div class="score-name-row"><b>${escapeHtml(playerLabel(room, id))}</b>${id === g.impId ? '<span class="badge-imp">الأمبوستر</span>' : ""}</div>
+        ${items ? `<div class="pts-chips">${items}</div>` : ""}
+      </div>
+      <div class="score-side">
+        <span class="score-gain${pts > 0 ? " is-pos" : ""}">+${fmtPts(pts)}</span>
+        <span class="score-total">المجموع ${fmtPts(totals[id] || 0)}</span>
+      </div>
+    </li>`;
+  }).join(""));
+  $("#btn-next-round").textContent = isFinalRound ? "عرض الفائز" : `الجولة التالية (${(match.round || 1) + 1} من ${settings.gameRounds})`;
+  $("#score-actions").classList.toggle("hidden", !state.isHost);
+  $("#score-wait").classList.toggle("hidden", state.isHost);
+}
+
+$("#btn-next-round").addEventListener("click", () => {
   const room = state.roomData;
   if(!room) return;
-  const players = room.players || {};
-  const ids = Object.keys(players);
-  if(ids.length < 3) return;
+  const settings = getRoomSettings(room);
+  if(((room.match || {}).round || 1) >= settings.gameRounds) showFinal();
+  else nextRound();
+});
+$("#btn-score-room").addEventListener("click", backToRoom);
 
-  const { category, innocentWord, impostorWord } = pickCategoryAndWords();
+/* ----- النتيجة النهائية ----- */
+function renderFinal(room, t){
+  const match = room.match || {}, totals = match.totals || {};
+  const rows = sortedPlayerIds(room).sort((a, b) => (totals[b] || 0) - (totals[a] || 0));
+  const top = rows[0], topPts = totals[top] || 0;
+  const tied = rows.filter(id => (totals[id] || 0) === topPts);
+  const noWinner = topPts === 0, isTie = !noWinner && tied.length > 1;
+  const rn = match.done || 0;
+  const roundsTxt = rn === 1 ? "جولة واحدة" : rn === 2 ? "جولتين" : rn <= 10 ? `${rn} جولات` : `${rn} جولة`;
+  const ptsTxt = id => `${fmtPts(totals[id] || 0)} نقطة`;
+  const rankOf = id => rows.findIndex(q => (totals[q] || 0) === (totals[id] || 0)) + 1;
 
-  const numImpostors = ids.length > 8 ? 2 : 1;
-  const impostors = pickRandom(ids, numImpostors);
-  const turnOrder = shuffleArray(ids);
+  $("#final-title").textContent = noWinner ? "انتهت المباراة بدون فائز"
+    : isTie ? "تعادل!"
+    : top === state.playerId ? "مبروك! فزت بالمباراة" : `${playerName(room, top)} فاز بالمباراة!`;
+  $("#final-line").textContent = noWinner ? `لم يسجّل أي لاعب نقاطًا بعد ${roundsTxt}`
+    : isTie ? `${tied.map(id => playerLabel(room, id)).join(" و")} بمجموع ${ptsTxt(top)} بعد ${roundsTxt}`
+    : `بمجموع ${ptsTxt(top)} بعد ${roundsTxt}`;
 
-  await Backend.updateRoom(state.roomCode, {
-    status: "clue",
-    category,
-    words: { innocent: innocentWord, impostor: impostorWord },
-    impostors,
-    turnOrder,
-    round: 1,
-    turnIndex: 0,
-    turnStartedAt: Date.now(),
-    cluesLog: [],
-    votes: {},
-    results: null,
-    gameVersion: (room.gameVersion || 0) + 1
-  });
-}
-
-/* ---------------------------------------------------------------------
-   9) شاشة كشف الكلمة السرية (بطاقة قابلة للقلب)
---------------------------------------------------------------------- */
-function renderWordScreen(room, seenKey){
-  showScreen("screen-word");
-  $("#word-category-label").textContent = `الفئة: ${room.category}`;
-
-  const isImpostor = (room.impostors || []).includes(state.playerId);
-  const myWord = isImpostor ? room.words.impostor : room.words.innocent;
-
-  const flip = $("#flip-card");
-  flip.classList.remove("flipped", "is-impostor");
-  $("#btn-word-continue").classList.add("hidden");
-
-  $("#secret-role-label").textContent = isImpostor ? "أنت الأمبوستر! كلمتك السرية" : "كلمتك";
-  $("#secret-word-value").textContent = myWord;
-  if(isImpostor) flip.classList.add("is-impostor");
-
-  const flipHandler = () => {
-    flip.classList.add("flipped");
-    $("#btn-word-continue").classList.remove("hidden");
-    flip.removeEventListener("click", flipHandler);
-  };
-  flip.addEventListener("click", flipHandler);
-
-  $("#btn-word-continue").onclick = () => {
-    sessionStorage.setItem(seenKey, "1");
-    updatePersistentHint(room);
-    renderClueScreen(state.roomData);
-  };
-}
-
-/* ---------------------------------------------------------------------
-   10) شاشة التلميحات (دور بدور، 3 جولات)
---------------------------------------------------------------------- */
-function renderClueScreen(room){
-  showScreen("screen-clue");
-  $("#clue-round-num").textContent = room.round;
-  $("#clue-round-total").textContent = getRoomSettings(room).hintRounds;
-
-  const players = room.players || {};
-  const currentTurnId = (room.turnOrder || [])[room.turnIndex || 0];
-  const currentPlayer = players[currentTurnId];
-
-  // بث اسم اللاعب صاحب الدور الحالي لكل من في الغرفة
-  $("#turn-player-name").textContent = currentPlayer ? currentPlayer.name : "-";
-  $("#turn-avatar").textContent = currentPlayer ? initialsOf(currentPlayer.name) : "؟";
-
-  const isMyTurn = currentTurnId === state.playerId;
-  $("#clue-input-row").classList.toggle("hidden", !isMyTurn);
-  $("#clue-wait-hint").classList.toggle("hidden", isMyTurn);
-
-  const log = $("#clue-log");
-  log.innerHTML = "";
-  (room.cluesLog || []).slice().reverse().forEach(entry => {
-    const li = document.createElement("li");
-    li.innerHTML = `<span>${escapeHtml(entry.name)}: ${escapeHtml(entry.text)}</span><span class="clue-round-tag">جولة ${entry.round}</span>`;
-    log.appendChild(li);
-  });
-
-  startTurnTimer(room);
-}
-
-$("#btn-send-clue").addEventListener("click", () => sendClue(false));
-$("#clue-input").addEventListener("keydown", (e) => { if(e.key === "Enter") sendClue(false); });
-
-/** يرسل تلميح اللاعب صاحب الدور الحالي. isAuto=true يعني أن الوقت (15
- *  ثانية) انتهى، فيُسجَّل الدور تلقائيًا كـ"تخطّى" وينتقل الدور مباشرة. */
-async function sendClue(isAuto){
-  const input = $("#clue-input");
-  const text = isAuto ? "" : input.value.trim();
-  if(!isAuto && !text) return;
-  input.value = "";
-
-  await Backend.transaction(state.roomCode, room => {
-    if(!room) return room;
-    if(room.status !== "clue") return room;
-    const currentTurnId = (room.turnOrder || [])[room.turnIndex || 0];
-    if(currentTurnId !== state.playerId) return room; // ليس دورك، لا تُعدّل شيئًا
-
-    room.cluesLog = room.cluesLog || [];
-    room.cluesLog.push({
-      playerId: state.playerId,
-      name: (room.players[state.playerId] || {}).name || state.playerName,
-      round: room.round,
-      text: text || "(تخطّى)"
-    });
-
-    room.turnIndex = (room.turnIndex || 0) + 1;
-    if(room.turnIndex >= (room.turnOrder || []).length){
-      room.turnIndex = 0;
-      room.round = (room.round || 1) + 1;
-      if(room.round > getRoomSettings(room).hintRounds){
-        room.status = "voting";
-        room.votes = {};
-      }
-    }
-    room.turnStartedAt = Date.now(); // بداية موحّدة للدور التالي
-    return room;
-  });
-}
-
-/* ---------------------------------------------------------------------
-   10.ب) عدّاد 15 ثانية للدور — مُزامَن عبر room.turnStartedAt، ويُنفَّذ
-   الإرسال التلقائي (تخطّي) فقط من جهاز اللاعب صاحب الدور نفسه.
---------------------------------------------------------------------- */
-let turnTimerInterval = null;
-const TURN_TIMER_CIRC = 2 * Math.PI * 17; // محيط الدائرة r=17 في الـ SVG
-
-function startTurnTimer(room){
-  clearInterval(turnTimerInterval);
-  const timerEl = $("#turn-timer");
-  const barEl = $("#tt-bar");
-  const secondsEl = $("#tt-seconds");
-  if(!timerEl || !barEl || !secondsEl) return;
-
-  const startedAt = room.turnStartedAt || Date.now();
-  const TURN_SECONDS = getRoomSettings(room).hintTime;
-  const currentTurnId = (room.turnOrder || [])[room.turnIndex || 0];
-  const isMyTurn = currentTurnId === state.playerId;
-  const roundAtStart = room.round;
-  const turnIndexAtStart = room.turnIndex || 0;
-  timerEl.classList.remove("hidden", "urgent");
-  let autoFired = false;
-
-  function tick(){
-    const elapsed = (Date.now() - startedAt) / 1000;
-    const remaining = Math.max(0, TURN_SECONDS - elapsed);
-    secondsEl.textContent = Math.ceil(remaining);
-    barEl.style.strokeDashoffset = String(TURN_TIMER_CIRC * (1 - remaining / TURN_SECONDS));
-    timerEl.classList.toggle("urgent", remaining <= 5);
-
-    if(remaining <= 0){
-      clearInterval(turnTimerInterval);
-      // لا نُطلق التخطّي التلقائي إلا إذا كان الدور ما زال لنفس اللاعب/الجولة
-      // (يحمي من إطلاقه بعد أن يكون الدور قد تغيّر بالفعل من مصدر آخر)
-      const stillSameTurn = state.roomData
-        && state.roomData.round === roundAtStart
-        && (state.roomData.turnIndex || 0) === turnIndexAtStart;
-      if(isMyTurn && !autoFired && stillSameTurn){
-        autoFired = true;
-        sendClue(true);
-      }
-    }
+  const delays = ["1s", ".55s", ".2s"];
+  const podium = [1, 0, 2].filter(i => rows[i]).map(i => {
+    const id = rows[i], first = i === 0 && !noWinner && !isTie;
+    const h = ["clamp(120px,18vw,170px)", "clamp(88px,13vw,120px)", "clamp(62px,9vw,86px)"][i];
+    return `<div class="pod${first ? " is-first" : ""}" style="animation-delay:${delays[i]}">
+      ${first ? '<svg class="pod-crown" width="40" height="32" viewBox="0 0 24 18" aria-hidden="true"><path d="M2 16h20l-1.6-11-5.2 4.6L12 1 8.8 9.6 3.6 5z" fill="#f0c048"></path></svg>' : ""}
+      ${avatarHtml(room, id)}
+      <div class="pod-info"><span class="pod-name">${escapeHtml(playerLabel(room, id))}</span><span class="pod-pts">${ptsTxt(id)}</span></div>
+      <div class="pod-base" style="height:${h}">${rankOf(id)}</div>
+    </div>`;
+  }).join("");
+  const key = String(room.finalAt || "");
+  if(ui.finalKey !== key){
+    ui.finalKey = key;
+    ui.sig.podium = null; ui.sig.rest = null;
+    buildConfetti();
   }
+  setHtml($("#podium"), "podium", podium);
+  setHtml($("#final-rest"), "rest", rows.slice(3).map((id, i) => `<li style="animation-delay:${1.5 + i * .08}s">
+      <span class="final-rest-rank">${rankOf(id)}</span>
+      ${avatarHtml(room, id)}
+      <span class="final-rest-name">${escapeHtml(playerLabel(room, id))}</span>
+      <span class="final-rest-pts">${ptsTxt(id)}</span>
+    </li>`).join(""));
+  $("#final-actions").classList.toggle("hidden", !state.isHost);
+  $("#final-wait").classList.toggle("hidden", state.isHost);
 
-  tick();
-  turnTimerInterval = setInterval(tick, 250);
+  const fa = room.finalAt || 0;
+  let d = 200;
+  for(let i = 0; i < 10; i++){ sfxAt(`final:${fa}:d${i}`, fa + d, "drum", t); d += Math.max(60, 140 - i * 9); }
+  sfxAt(`final:${fa}:f`, fa + 1000, "final", t);
 }
 
-function stopTurnTimer(){
-  clearInterval(turnTimerInterval);
-  turnTimerInterval = null;
-  const timerEl = $("#turn-timer");
-  if(timerEl) timerEl.classList.add("hidden");
+function buildConfetti(){
+  const box = $("#confetti");
+  const pal = ["#2dd4bf", "#f0c048", "#e879c9", "#7c5cff", "#5b8cff", "#ffffff"];
+  box.innerHTML = Array.from({ length: 70 }, (_, i) => {
+    const w = (6 + Math.random() * 6).toFixed(0), h = (10 + Math.random() * 10).toFixed(0);
+    return `<span style="left:${(Math.random() * 100).toFixed(1)}%;width:${w}px;height:${h}px;background:${pal[i % pal.length]};border-radius:${Math.random() > .5 ? "2px" : "50%"};animation-delay:${(Math.random() * 2.5 + .8).toFixed(2)}s;animation-duration:${(3 + Math.random() * 2.5).toFixed(2)}s"></span>`;
+  }).join("");
+  box.classList.remove("hidden");
 }
 
-/* ---------------------------------------------------------------------
-   11) شاشة التصويت
---------------------------------------------------------------------- */
-function renderVotingScreen(room){
-  showScreen("screen-voting");
-  const players = room.players || {};
-  const votes = room.votes || {};
-  const totalPlayers = Object.keys(players).length;
-  const votedCount = Object.keys(votes).length;
+$("#btn-final-room").addEventListener("click", backToRoom);
+$("#btn-new-match").addEventListener("click", startMatch);
 
-  const myVote = votes[state.playerId];
-  const list = $("#vote-list");
-  list.innerHTML = "";
-
-  Object.keys(players).forEach(id => {
-    if(id === state.playerId) return; // لا يمكن التصويت لنفسك
-    const p = players[id];
-    const li = document.createElement("li");
-    li.textContent = p.name;
-    if(myVote){
-      li.classList.add("disabled");
-      if(myVote === id) li.classList.add("selected");
-    } else {
-      li.addEventListener("click", () => castVote(id));
-    }
-    list.appendChild(li);
-  });
-
-  $("#vote-status-text").textContent = myVote
-    ? `تم تسجيل صوتك. بانتظار باقي اللاعبين (${votedCount}/${totalPlayers})`
-    : `اختر لاعبًا للتصويت عليه (${votedCount}/${totalPlayers} صوّتوا حتى الآن)`;
-
-  // جدول مرجعي بكل التلميحات المُرسَلة هذه الجولة، مرئي للجميع أثناء التصويت
-  const tbody = $("#voting-clue-tbody");
-  if(tbody){
-    tbody.innerHTML = "";
-    (room.cluesLog || []).forEach(entry => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${escapeHtml(entry.name)}</td><td>${escapeHtml(entry.text || "—")}</td><td>${entry.round}</td>`;
-      tbody.appendChild(tr);
-    });
-  }
-
-  // المضيف فقط يقوم باحتساب النتائج بمجرد اكتمال كل الأصوات
-  if(state.isHost && votedCount === totalPlayers && totalPlayers > 0){
-    computeResults();
-  }
-}
-
-async function castVote(targetId){
-  await Backend.setVote(state.roomCode, state.playerId, targetId);
-}
-
-/* ---------------------------------------------------------------------
-   12) احتساب النتائج (يُنفَّذ مرة واحدة فقط عبر transaction على status)
---------------------------------------------------------------------- */
-async function computeResults(){
-  await Backend.transaction(state.roomCode, room => {
-    if(!room) return room;
-    if(room.status !== "voting") return room; // تم احتسابها بالفعل من جهاز آخر
-
-    const players = room.players || {};
-    const votes = room.votes || {};
-    const impostors = room.impostors || [];
-    const playerIds = Object.keys(players);
-
-    // تجميع الأصوات
-    const voteCounts = {};
-    Object.values(votes).forEach(targetId => {
-      voteCounts[targetId] = (voteCounts[targetId] || 0) + 1;
-    });
-    let eliminated = null, maxVotes = -1;
-    Object.keys(voteCounts).forEach(id => {
-      if(voteCounts[id] > maxVotes){ maxVotes = voteCounts[id]; eliminated = id; }
-    });
-
-    const scoreDelta = {};
-
-    // نقاط الأمبوستر: +1 عن كل لاعب لم يصوّت له
-    impostors.forEach(impId => {
-      let count = 0;
-      playerIds.forEach(pid => {
-        if(pid === impId) return;
-        if(votes[pid] !== impId) count++;
-      });
-      scoreDelta[impId] = (scoreDelta[impId] || 0) + count;
-    });
-
-    // نقاط الأبرياء: +5 لكل تصويت صحيح على أمبوستر حقيقي
-    playerIds.forEach(pid => {
-      if(impostors.includes(pid)) return;
-      if(impostors.includes(votes[pid])){
-        scoreDelta[pid] = (scoreDelta[pid] || 0) + 5;
-      }
-    });
-
-    // تطبيق النقاط على السجل
-    playerIds.forEach(pid => {
-      const delta = scoreDelta[pid] || 0;
-      players[pid].score = (players[pid].score || 0) + delta;
-    });
-
-    room.players = players;
-    room.results = {
-      voteCounts, eliminated, impostors,
-      innocentWord: room.words.innocent,
-      impostorWord: room.words.impostor,
-      scoreDelta
-    };
-    room.status = "results";
-    return room;
-  });
-}
-
-/* ---------------------------------------------------------------------
-   13) شاشة النتائج
---------------------------------------------------------------------- */
-function renderResultsScreen(room){
-  showScreen("screen-results");
-  const results = room.results;
-  if(!results) return;
-  const players = room.players || {};
-
-  $("#result-eliminated-name").textContent = results.eliminated
-    ? (players[results.eliminated] || {}).name || "-"
-    : "لا أحد";
-
-  const impostorNames = (results.impostors || [])
-    .map(id => (players[id] || {}).name || "؟")
-    .join("، ");
-  $("#result-impostor-names").textContent = impostorNames || "-";
-  $("#result-real-word").textContent = results.innocentWord;
-  $("#result-impostor-word").textContent = results.impostorWord;
-
-  const scoreList = $("#score-list");
-  scoreList.innerHTML = "";
-  Object.keys(players)
-    .sort((a,b) => (players[b].score||0) - (players[a].score||0))
-    .forEach(id => {
-      const p = players[id];
-      const delta = (results.scoreDelta || {})[id] || 0;
-      const li = document.createElement("li");
-      li.innerHTML = `
-        <span>${escapeHtml(p.name)}${id === state.playerId ? ' <span class="tag-you">(أنت)</span>' : ""}</span>
-        <span class="score-points">${p.score || 0}<span class="score-delta">${delta ? " +" + delta : ""}</span></span>
-      `;
-      scoreList.appendChild(li);
-    });
-
-  const playAgainBtn = $("#btn-play-again");
-  const waitHint = $("#results-wait-hint");
-  if(state.isHost){
-    playAgainBtn.classList.remove("hidden");
-    waitHint.classList.add("hidden");
+/* ----- الطبقات: المقدمة، البطاقة، الكشف ----- */
+function showLayer(el, on){
+  if(on){
+    if(el.classList.contains("hidden")){ el.classList.remove("hidden"); void el.offsetWidth; }
   } else {
-    playAgainBtn.classList.add("hidden");
-    waitHint.classList.remove("hidden");
+    el.classList.add("hidden");
+    el.classList.remove("is-in");
   }
 }
 
-$("#btn-play-again").addEventListener("click", () => returnToLobbyForNextRound());
+function renderOverlays(room, t, settings){
+  const g = room.g;
+  const match = room.match || {};
+  const inRound = (g.order || []).includes(state.playerId);
+  const active = room.status === "game";
 
-/** بعد النتائج، نعيد الغرفة إلى حالة "lobby" بدل بدء الجولة مباشرة —
- *  هذا يفتح نافذة زمنية يستطيع خلالها لاعبون جدد الانضمام بنفس رمز
- *  الغرفة (نفس شرط "room.status === 'lobby'" المستخدم أصلًا عند
- *  الانضمام)، مع الحفاظ الكامل على النقاط المتراكمة لكل لاعب. */
-async function returnToLobbyForNextRound(){
-  await Backend.updateRoom(state.roomCode, { status: "lobby" });
+  // المقدمة
+  const intro = $("#ov-intro");
+  const showIntro = active && g.phase === "pre" && t < g.cardAt;
+  showLayer(intro, showIntro);
+  if(showIntro){
+    intro.classList.toggle("is-in", t >= g.t0 + 40 && t < g.t0 + 4400);
+    $("#intro-round").textContent = `الجولة ${match.round || 1} من ${settings.gameRounds}`;
+    const e = t - g.t0;
+    const count = e < 900 ? null : e < 1800 ? 3 : e < 2700 ? 2 : e < 3600 ? 1 : 0;
+    const html = count === null ? "" : `<div class="cd${count ? "" : " is-go"}"><div class="cd-ring"></div><div class="cd-num">${count ? count : "ابدأ!"}</div></div>`;
+    setHtml($("#intro-count"), "count", html);
+  }
+
+  // بطاقة الدور
+  const cardOv = $("#ov-card");
+  const showCard = active && inRound && g.phase === "pre" && t >= g.cardAt && t < hintsAt(g);
+  showLayer(cardOv, showCard);
+  if(showCard){
+    const ci = cardInfo(g, t);
+    const imp = myRole(g) === "impostor";
+    cardOv.classList.toggle("is-imp", imp);
+    cardOv.classList.toggle("is-in", ci.stage !== "pre" && ci.stage !== "exit");
+    $("#role-card-outer").dataset.stage = ci.stage;
+    $("#role-card").style.transform = `rotateY(${ci.flip * 180}deg)`;
+    $("#role-front").classList.toggle("is-imp", imp);
+    $("#role-label").textContent = imp ? "الأمبوستر" : "مواطن";
+    $("#role-word").textContent = myWord(g, ci.words);
+    $("#role-desc").textContent = imp
+      ? "كلمتك مختلفة عن الجميع. اندمج بتلميحاتك ولا تنكشف."
+      : "أعطِ تلميحات تثبت أنك تعرف الكلمة دون أن تكشفها للأمبوستر.";
+    $("#role-bar").style.width = `${Math.max(0, ci.left / T.CARD_SEC * 100)}%`;
+    $("#role-secs").textContent = `تختفي البطاقة خلال ${Math.ceil(ci.left)} ث`;
+    $("#btn-reroll").classList.toggle("hidden", !(state.isHost && ci.stage === "open"));
+    const rr = g.rerolls || 0;
+    $("#reroll-note").classList.toggle("hidden", !rr);
+    $("#reroll-note").textContent = `غيّر المضيف الكلمة${rr > 1 ? ` (${rr} مرات)` : ""} · تم تحديث بطاقات الجميع`;
+  }
+
+  // كشف الأمبوستر
+  const rv = $("#ov-reveal");
+  const showRv = active && g.phase === "reveal" && !g.voided && t >= g.revealAt && t < g.revealAt + T.REVEAL_OFF;
+  showLayer(rv, showRv);
+  if(showRv){
+    rv.classList.toggle("is-in", t >= g.revealAt + 40 && t < g.revealAt + T.REVEAL_FADE);
+    const named = t >= g.revealAt + T.REVEAL_NAME;
+    $("#rv-suspense").classList.toggle("hidden", named);
+    $("#rv-name").classList.toggle("hidden", !named);
+    if(named){
+      const caught = isCaught(g), meImp = g.impId === state.playerId;
+      const avatar = $("#rv-avatar");
+      avatar.style.background = playerColor(room, g.impId);
+      avatar.textContent = initialsOf(playerName(room, g.impId));
+      $("#rv-imp-name").textContent = meImp ? "أنت" : playerName(room, g.impId);
+      const v = $("#rv-verdict");
+      v.textContent = meImp ? (caught ? "تم كشفك!" : "نجوت من الكشف!") : (caught ? "كشفتموه!" : "نجا من الكشف!");
+      v.className = "rv-verdict " + (caught ? "is-caught" : "is-escaped");
+    }
+  }
 }
 
+/* ----- الأصوات المرتبطة بمراحل المباراة ----- */
+function gameSounds(room, t, settings){
+  const g = room.g, id = g.id;
+  if(room.status !== "game") return;
+  if(g.phase === "pre"){
+    sfxAt(`${id}:intro`, g.t0, "whoosh", t);
+    [3, 2, 1].forEach((n, i) => sfxAt(`${id}:c${n}`, g.t0 + 900 + i * 900, "tick", t));
+    sfxAt(`${id}:go`, g.t0 + 3600, "go", t);
+    if((g.order || []).includes(state.playerId)){
+      const ci = cardInfo(g, t), role = myRole(g);
+      sfxAt(`${id}:card`, g.cardAt, "whoosh", t);
+      sfxAt(`${id}:open`, ci.openAt, "flip", t);
+      sfxAt(`${id}:role`, ci.openAt + 380, role, t);
+      const rr = g.rerolls || 0;
+      if(rr){
+        sfxAt(`${id}:rr${rr}a`, g.rerollAt, "flip", t);
+        sfxAt(`${id}:rr${rr}b`, g.rerollAt + T.FLIP, "flip", t);
+        sfxAt(`${id}:rr${rr}c`, g.rerollAt + T.FLIP + 380, role, t);
+      }
+      if(ci.stage === "open" && ci.left > 0 && ci.left <= 3) sfxAt(`${id}:cw${rr}:${Math.ceil(ci.left)}`, t, "warn", t);
+      sfxAt(`${id}:close${g.cardEndsAt}`, g.cardEndsAt, "flip", t);
+      sfxAt(`${id}:exit${g.cardEndsAt}`, g.cardEndsAt + T.FLIP, "whoosh", t);
+    }
+  }
+  if(g.phase === "hints"){
+    const key = `${id}:${g.hintRound}:${g.turn}`;
+    if(ui.lastTurnKey !== key){
+      ui.lastTurnKey = key;
+      const mine = g.order[g.turn] === state.playerId;
+      Sound.sfx(mine ? "myTurn" : "turn");
+      if(mine && navigator.vibrate) try{ navigator.vibrate(180); } catch(e){}
+    }
+    const left = (g.turnEndsAt - t) / 1000;
+    if(!g.turnSent && left > 0 && left <= 5) sfxAt(`${key}:w${Math.ceil(left)}`, t, "warn", t);
+  }
+  const hints = (g.hints || []).length;
+  if(hints > ui.lastHints){
+    if(ui.lastHints || hints === 1) Sound.sfx(g.hints[hints - 1].skipped ? "skip" : "send");
+    ui.lastHints = hints;
+  }
+  if(g.phase === "voting" || g.phase === "reveal") sfxAt(`${id}:hintsdone`, t, "end", t);
+  const nv = Object.keys(g.votes || {}).length;
+  const myVoted = !!(g.votes || {})[state.playerId];
+  if(nv > ui.lastVotes){
+    if(ui.lastVotes || nv === 1) Sound.sfx(myVoted && !ui.myVoteSeen ? "send" : "vote");
+    ui.lastVotes = nv;
+  }
+  ui.myVoteSeen = myVoted;
+  if(g.phase === "reveal" && !g.voided){
+    let d = 250;
+    for(let i = 0; i < 16; i++){ sfxAt(`${id}:drum${i}`, g.revealAt + d, "drum", t); d += Math.max(55, 170 - i * 9); }
+    sfxAt(`${id}:verdict`, g.revealAt + T.REVEAL_NAME, isCaught(g) ? "caught" : "escaped", t);
+    if(g.points && g.guess && ui.guessDoneKey !== id){
+      ui.guessDoneKey = id;
+      if(t - g.revealAt < T.REVEAL_OFF + T.GUESS_TIMEOUT + 2000) Sound.sfx(g.guess.correct ? "impWin" : "citWin");
+    }
+  }
+}
+
+/* ----- أزرار الشريط العلوي ----- */
+$("#btn-word").addEventListener("click", () => {
+  ui.wordShown = !ui.wordShown;
+  $("#btn-word").setAttribute("aria-pressed", String(ui.wordShown));
+});
+$("#btn-mute").addEventListener("click", () => {
+  Sound.setMuted(!Sound.muted);
+  if(!Sound.muted) Sound.audio();
+  if(state.roomData) renderGame(state.roomData);
+});
+$("#btn-reroll").addEventListener("click", rerollWord);
+
+/* ----- نافذة الخروج ----- */
+const exitModal = setupModal("#exit-modal");
+$("#btn-exit").addEventListener("click", (e) => {
+  const guest = !state.isHost;
+  $(".dlg-exit").classList.toggle("is-guest", guest);
+  $("#exit-sub").textContent = guest
+    ? "يمكنك متابعة اللعب أو مغادرة المباراة. مغادرتك لا تؤثر على باقي اللاعبين."
+    : "اختر ما تريد فعله. هذا الإجراء يطبّق على جميع اللاعبين في الغرفة.";
+  Modal.open(exitModal, e.currentTarget);
+});
+$("#btn-exit-room").addEventListener("click", () => { Modal.close(exitModal); backToRoom(); });
+$("#btn-exit-end").addEventListener("click", () => { Modal.close(exitModal); showFinal(); });
+$("#btn-exit-leave").addEventListener("click", () => { Modal.close(exitModal); leaveMatch(); });
+
+/* ----- حلقة التحديث: العدّادات + نقل المراحل عند انتهاء الوقت ----- */
+function maybeAdvance(room){
+  if(!room || room.status !== "game" || !room.g || state.isSpectator) return;
+  // المضيف يبادر فورًا؛ بقية الأجهزة تبادر فقط إن تأخر المضيف (خرج مثلًا)
+  const t = now() - (state.isHost ? 0 : T.FOLLOWER_DELAY);
+  let probe;
+  try{ probe = advanceRoom(JSON.parse(JSON.stringify(room)), t); } catch(e){ return; }
+  if(!probe) return;
+  const g = probe.g;
+  const key = `${g.id}:${g.phase}:${g.hintRound}:${g.turn}:${g.turnSent}:${(g.hints || []).length}:${!!g.points}`;
+  if(ui.advKey === key && Date.now() - ui.advAt < 1500) return;
+  ui.advKey = key;
+  ui.advAt = Date.now();
+  Backend.transaction(state.roomCode, r => advanceRoom(r, now() - (state.isHost ? 0 : T.FOLLOWER_DELAY)))
+    .catch(err => console.warn("advance", err));
+}
+
+setInterval(() => {
+  const room = state.roomData;
+  if(!room || !state.roomCode) return;
+  if(state.isSpectator){ renderSpectatorFlow(room); return; }
+  if(room.status === "game" || room.status === "final"){
+    if(room.players && room.players[state.playerId]) renderGame(room);
+    maybeAdvance(room);
+  }
+}, 100);
+
 /* ---------------------------------------------------------------------
-   13.ب) شاشة عرض للبث (لوحة تحكم المشاهد)
-   — أثناء "lobby" يُعاد استخدام شاشة اللوبي العادية (renderLobby يتعرف
-     على state.isSpectator تلقائيًا ويُظهر رسالة مخصّصة).
-   — في أي حالة أخرى (clue / voting / results) تُعرض لوحة المشاهد
-     المقسّمة إلى: شبكة اللاعبين، شات التلميحات، ومنطقة التصويت.
-   — عند وصول الحالة "results" تُفتح نافذة كشف الأدوار الخاصة بالمشاهد
-     فقط، فوق نفس اللوحة.
+   12) شاشة عرض للبث (لوحة المشاهد) — عرض فقط، بلا تصويت أو لعب.
+   أثناء الانتظار تُعرض غرفة الانتظار العادية، وأثناء المباراة: شبكة
+   اللاعبين، شات التلميحات، والتصويت. بعد انتهاء الجولة تُفتح نافذة
+   كشف الأدوار مرة واحدة لكل جولة.
 --------------------------------------------------------------------- */
+const specUI = { sig: {}, revealedFor: null };
+
+function specSet(el, key, html){
+  if(specUI.sig[key] === html) return;
+  specUI.sig[key] = html;
+  el.innerHTML = html;
+}
+
 function renderSpectatorFlow(room){
-  if(room.status === "lobby"){
-    stopTurnTimer();
+  const g = room.g;
+  if(room.status === "lobby" || !g){
     closeSpectatorResultsModal();
-    renderLobby(room);
+    if(!$("#screen-lobby").classList.contains("active") || specUI.sig.lobbyAt !== room) {
+      specUI.sig.lobbyAt = room;
+      renderLobby(room);
+    }
     return;
   }
 
   showScreen("screen-spectator");
-  renderSpectatorGrid(room);
-  renderSpectatorHints(room);
-  renderSpectatorVoting(room);
+  const players = room.players || {};
+  const curId = g.phase === "hints" ? (g.order || [])[g.turn] : null;
+  const order = (g.order || []).filter(id => players[id]);
 
-  if(room.status === "results" && room.results){
-    openSpectatorResultsModal(room);
+  specSet($("#spec-players-grid"), "grid", order.length
+    ? order.map(id => `<div class="spec-player-box${id === curId ? " is-turn" : ""}"><span class="spec-player-name">${escapeHtml(players[id].name)}</span></div>`).join("")
+    : '<div class="spec-hints-empty">لا يوجد لاعبون بعد</div>');
+
+  const hints = (g.hints || []).slice().reverse();
+  specSet($("#spec-hints-log"), "hints", hints.length
+    ? hints.map(h => `<li><strong>${escapeHtml(playerName(room, h.pid))}</strong> — التلميح ${h.round}: «${escapeHtml(h.skipped ? "تخطّى" : h.text)}»</li>`).join("")
+    : '<li class="spec-hints-empty">لا توجد تلميحات بعد... بانتظار بدء الجولة</li>');
+
+  let votesHtml;
+  if(g.phase !== "voting" && g.phase !== "reveal"){
+    votesHtml = '<li class="spec-vote-empty">لم يبدأ التصويت بعد</li>';
   } else {
-    closeSpectatorResultsModal();
+    const c = voteCounts(g.votes);
+    votesHtml = order.map(id => `<li><span>${escapeHtml(players[id].name)}</span><span class="spec-vote-count">${c[id] || 0}</span></li>`).join("");
   }
+  specSet($("#spec-vote-list"), "votes", votesHtml);
+
+  if(room.status === "game" && g.points && !g.voided && specUI.revealedFor !== g.id){
+    specUI.revealedFor = g.id;
+    openSpectatorResultsModal(room);
+  }
+  if(room.status === "game" && !g.points) closeSpectatorResultsModal();
 }
 
-/** شبكة مربعات بأسماء اللاعبين، مع تمييز صاحب الدور الحالي أثناء التلميحات. */
-function renderSpectatorGrid(room){
-  const grid = $("#spec-players-grid");
-  if(!grid) return;
-  grid.innerHTML = "";
-  const players = room.players || {};
-  const currentTurnId = room.status === "clue" ? (room.turnOrder || [])[room.turnIndex || 0] : null;
-
-  Object.keys(players).forEach(id => {
-    const p = players[id];
-    const box = document.createElement("div");
-    box.className = "spec-player-box";
-    if(id === currentTurnId) box.classList.add("is-turn");
-    box.innerHTML = `<span class="spec-player-name">${escapeHtml(p.name)}</span>`;
-    grid.appendChild(box);
-  });
-
-  if(Object.keys(players).length === 0){
-    const empty = document.createElement("div");
-    empty.className = "spec-hints-empty";
-    empty.textContent = "لا يوجد لاعبون بعد";
-    grid.appendChild(empty);
-  }
-}
-
-/** شات التلميحات: يعرض كل التلميحات المُرسَلة حتى الآن كأحداث للجولة،
- *  من الأحدث إلى الأقدم. */
-function renderSpectatorHints(room){
-  const log = $("#spec-hints-log");
-  if(!log) return;
-  log.innerHTML = "";
-
-  const entries = (room.cluesLog || []).slice().reverse();
-  if(entries.length === 0){
-    const li = document.createElement("li");
-    li.className = "spec-hints-empty";
-    li.textContent = "لا توجد تلميحات بعد... بانتظار بدء الجولة";
-    log.appendChild(li);
-    return;
-  }
-
-  entries.forEach(entry => {
-    const li = document.createElement("li");
-    li.innerHTML = `💡 <strong>${escapeHtml(entry.name)}</strong> أعطى تلميحًا في الجولة ${entry.round}: «${escapeHtml(entry.text)}»`;
-    log.appendChild(li);
-  });
-}
-
-/** منطقة التصويت: تعرض نفس أزرار التصويت الافتراضية (كعرض فقط، بلا
- *  تفاعل) مع عدد الأصوات الحالي لكل لاعب أثناء وبعد التصويت. */
-function renderSpectatorVoting(room){
-  const list = $("#spec-vote-list");
-  if(!list) return;
-  list.innerHTML = "";
-
-  const players = room.players || {};
-  const votes = room.votes || {};
-
-  if(room.status !== "voting" && room.status !== "results"){
-    const li = document.createElement("li");
-    li.className = "spec-vote-empty";
-    li.textContent = "لم يبدأ التصويت بعد";
-    list.appendChild(li);
-    return;
-  }
-
-  const counts = {};
-  Object.values(votes).forEach(targetId => { counts[targetId] = (counts[targetId] || 0) + 1; });
-
-  Object.keys(players).forEach(id => {
-    const li = document.createElement("li");
-    li.innerHTML = `<span>${escapeHtml(players[id].name)}</span><span class="spec-vote-count">${counts[id] || 0}</span>`;
-    list.appendChild(li);
-  });
-}
-
-/** نافذة كشف الأدوار الخاصة بالمشاهد فقط: تعرض الأدوار الحقيقية لكل
- *  لاعب. اسم الأمبوستر يظهر في رأس القائمة إن فاز (لم يُكشَف) أو في
- *  أسفلها إن خسر (تم كشفه)، مع تمييزه بوضوح. */
+/** نافذة كشف الأدوار (للمشاهد فقط) */
 function openSpectatorResultsModal(room){
   const modal = $("#spectator-results-modal");
   const list = $("#spec-reveal-list");
-  if(!modal || !list) return;
-
-  const results = room.results;
-  const players = room.players || {};
-  const impostors = results.impostors || [];
-  const impostorWon = !results.eliminated || !impostors.includes(results.eliminated);
-
-  const innocentIds = Object.keys(players)
-    .filter(id => !impostors.includes(id))
-    .sort((a, b) => (players[b].score || 0) - (players[a].score || 0));
-
-  list.innerHTML = "";
-
-  const buildImpostorItems = () => impostors.map(id => {
-    const li = document.createElement("li");
-    li.className = "is-impostor";
-    const name = (players[id] || {}).name || "؟";
-    li.innerHTML = `<span>🎭 ${escapeHtml(name)}</span><span>الأمبوستر ${impostorWon ? "— فاز 🏆" : "— خسر ❌"}</span>`;
-    return li;
-  });
-
-  const buildInnocentItems = () => innocentIds.map(id => {
-    const li = document.createElement("li");
-    li.innerHTML = `<span>${escapeHtml(players[id].name)}</span><span>بريء</span>`;
-    return li;
-  });
-
-  if(impostorWon){
-    buildImpostorItems().forEach(li => list.appendChild(li));
-    buildInnocentItems().forEach(li => list.appendChild(li));
-  } else {
-    buildInnocentItems().forEach(li => list.appendChild(li));
-    buildImpostorItems().forEach(li => list.appendChild(li));
-  }
-
-  modal.classList.remove("hidden");
+  const g = room.g, players = room.players || {};
+  const caught = isCaught(g);
+  const impName = playerName(room, g.impId);
+  const imp = `<li class="is-impostor"><span>${escapeHtml(impName)}</span><span>الأمبوستر ${caught ? "— انكشف" : "— نجا"}</span></li>`;
+  const others = (g.order || []).filter(id => id !== g.impId && players[id])
+    .map(id => `<li><span>${escapeHtml(players[id].name)}</span><span>مواطن</span></li>`).join("");
+  list.innerHTML = caught ? others + imp : imp + others;
+  if(modal.classList.contains("hidden")) Modal.open(modal);
 }
 
 function closeSpectatorResultsModal(){
-  const modal = $("#spectator-results-modal");
-  if(modal) modal.classList.add("hidden");
+  Modal.close($("#spectator-results-modal"));
 }
 
 (function setupSpectatorResultsModal(){
   const modal = $("#spectator-results-modal");
-  const closeBtn = $("#spectator-results-close");
-  if(!modal || !closeBtn) return;
-  closeBtn.addEventListener("click", closeSpectatorResultsModal);
   modal.addEventListener("click", (e) => { if(e.target === modal) closeSpectatorResultsModal(); });
-  document.addEventListener("keydown", (e) => {
-    if(e.key === "Escape" && !modal.classList.contains("hidden")) closeSpectatorResultsModal();
-  });
+  $("#spectator-results-close").addEventListener("click", closeSpectatorResultsModal);
 })();
 
 /* ---------------------------------------------------------------------
-   14) أدوات أمان بسيطة لعرض النصوص
---------------------------------------------------------------------- */
-function escapeHtml(str){
-  return String(str)
-    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-    .replace(/"/g,"&quot;").replace(/'/g,"&#039;");
-}
-
-/* ---------------------------------------------------------------------
-   15) إعادة الاتصال التلقائي إذا كان اللاعب داخل غرفة مسبقًا (تحديث الصفحة)
+   13) إعادة الاتصال التلقائي إذا كان اللاعب داخل غرفة (تحديث الصفحة)
 --------------------------------------------------------------------- */
 (async function autoRejoin(){
   if(state.roomCode && state.playerId){
@@ -1574,14 +2059,17 @@ function escapeHtml(str){
         if(state.isSpectator){
           await Backend.setSpectatorConnected(state.roomCode, state.playerId, true);
           Backend.setupSpectatorPresence(state.roomCode, state.playerId);
-        } else {
+          attachRoomListener();
+          return;
+        }
+        if(room.players && room.players[state.playerId]){
           await Backend.setConnected(state.roomCode, state.playerId, true);
           Backend.setupPresence(state.roomCode, state.playerId);
+          attachRoomListener();
+          return;
         }
-        attachRoomListener();
-        return;
       }
-    } catch(e){ /* تجاهل وابدأ من الشاشة الرئيسية */ }
+    } catch(e){ /* نبدأ من الشاشة الرئيسية */ }
   }
   resetToHome();
 })();
